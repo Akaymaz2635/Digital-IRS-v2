@@ -1,0 +1,85 @@
+def create_file_selection_section(self):
+        """Dosya seçimi bölümü"""
+        file_frame = ctk.CTkFrame(self)
+        file_frame.pack(fill="x", padx=40, pady=10)
+
+        # Alt başlık
+        ctk.CTkLabel(file_frame, text="Word Dosyası Seçimi",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(pady=(15, 10))
+
+        # Dosya seç butonu
+        self.select_file_btn = ctk.CTkButton(
+            file_frame,
+            text="Word Dosyası Seç",
+            command=self.select_word_file,
+            font=ctk.CTkFont(size=14),
+            width=200,
+            height=40,
+            state="disabled"  # Proje oluşturulana kadar disabled
+        )
+        self.select_file_btn.pack(pady=15)
+
+        # Dosya yolu gösterge
+        self.file_path_label = ctk.CTkLabel(
+            file_frame,
+            text="Önce proje oluşturun",
+            font=ctk.CTkFont(size=12),
+            text_color="gray"
+        )
+        self.file_path_label.pack(pady=5)
+
+        # İlerle butonu
+        self.proceed_btn = ctk.CTkButton(
+            file_frame,
+            text="Sonraki Sekmeye Geç →",
+            command=self.proceed_to_next_tab,
+            font=ctk.CTkFont(size=14),
+            width=200,
+            height=35,
+            state="disabled"
+        )
+        self.proceed_btn.pack(pady=15)
+
+    def select_word_file(self):
+        """Word dosyası seç ve yolu kaydet"""
+        if not self.project_manager.get_project_folder():
+            messagebox.showwarning("Uyarı", "Önce proje oluşturun!")
+            return
+
+        # Dosya seç
+        file_path = filedialog.askopenfilename(
+            title="Word Dosyası Seçin",
+            filetypes=[
+                ("Word Dosyaları", "*.docx *.doc"),
+                ("Tüm Dosyalar", "*.*")
+            ]
+        )
+
+        if not file_path:
+            return
+
+        try:
+            # Dosya yolunu proje bilgilerine kaydet (kopyalamadan)
+            success = self.project_manager.set_source_file_path(file_path)
+
+            if success:
+                self.selected_file_path = file_path
+                file_name = os.path.basename(file_path)
+                self.file_path_label.configure(text=f"✓ Seçilen: {file_name}")
+                self.proceed_btn.configure(state="normal")
+
+                print(f"Word dosyası yolu kaydedildi: {file_path}")
+            else:
+                messagebox.showerror("Hata", "Dosya yolu kaydetme hatası!")
+
+        except Exception as e:
+            messagebox.showerror("Hata", f"Dosya işleme hatası: {str(e)}")
+
+    def proceed_to_next_tab(self):
+        """Sonraki sekmeye geç"""
+        if self.on_project_ready_callback:
+            self.on_project_ready_callback(self.project_manager.get_project_folder(), self.selected_file_path)
+
+    def get_selected_file_path(self):
+        """Seçilen dosya yolunu döner"""
+        return self.selected_file_path
