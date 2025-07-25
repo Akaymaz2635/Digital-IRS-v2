@@ -1,0 +1,55 @@
+def _update_parsed_info(self, karakter: TeknikResimKarakteri):
+        """Parse edilmiş dimension bilgilerini günceller"""
+        if (hasattr(karakter, 'parsed_dimension') and karakter.parsed_dimension and
+                hasattr(karakter, 'tolerance_type') and karakter.tolerance_type):
+
+            # Tolerance Type
+            self.tolerance_type_value.configure(
+                text=karakter.tolerance_type.capitalize(),
+                text_color="lightblue"
+            )
+
+            # Nominal Value
+            if hasattr(karakter, 'nominal_value') and karakter.nominal_value is not None:
+                self.nominal_value.configure(
+                    text=f"{karakter.nominal_value}",
+                    text_color="lightgreen"
+                )
+            else:
+                self.nominal_value.configure(text="Tanımsız", text_color="gray")
+
+            # Tolerance Limits
+            self._update_tolerance_limits(karakter)
+        else:
+            # Parse edilemedi
+            self.tolerance_type_value.configure(text="Parse edilemedi", text_color="gray")
+            self.nominal_value.configure(text="-", text_color="gray")
+            self.limits_value.configure(text="-", text_color="gray")
+
+        # ===== YENİ: Uygunsuz durumu gösterme =====
+        if hasattr(karakter, 'is_out_of_tolerance') and karakter.is_out_of_tolerance:
+            # Uygunsuz işaretli - kırmızı renkte göster
+            self.tolerance_type_value.configure(
+                text="❌ UYGUNSUZ İŞARETLİ",
+                text_color="red"
+            )
+            self.nominal_value.configure(text="N/A", text_color="red")
+            self.limits_value.configure(text="Manuel işaretleme", text_color="red")
+        # =============================================
+
+    def _get_save_status_message(self, new_value: str) -> str:
+        """Kaydetme işlemi için status mesajını oluşturur"""
+        try:
+            # Uygunsuz işaretleme kontrolü önce
+            if hasattr(self.current_karakter, 'is_out_of_tolerance') and self.current_karakter.is_out_of_tolerance:
+                return "✓ Kaydedildi! (❌ Uygunsuz işaretli)"
+            
+            # Normal tolerans kontrolü
+            actual_float = float(new_value)
+            tolerance_status = self.check_tolerance(actual_float)
+            if tolerance_status:
+                return f"✓ Kaydedildi! {tolerance_status}"
+            else:
+                return "✓ Ölçüm kaydedildi!"
+        except ValueError:
+            return "✓ Kaydedildi (metin değer)"
