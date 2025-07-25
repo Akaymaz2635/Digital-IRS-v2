@@ -1,0 +1,213 @@
+def export_to_excel(self):
+        """Excel'e aktar - hem manuel hem otomatik uygunsuz karakterler dahil"""
+        if not self.karakterler:
+            messagebox.showwarning("Uyarı", "Veri yok!")
+            return
+
+        try:
+            project_folder = self.project_manager.get_project_folder()
+            if not project_folder:
+                messagebox.showerror("Hata", "Proje klasörü bulunamadı!")
+                return
+
+            # Excel dosyası yolu
+            excel_path = os.path.join(project_folder, "measurement_data.xlsx")
+
+            # UYGUNSUZ KARAKTERLER İÇİN GENİŞ KONTROL
+            out_of_tolerance_karakterler = []
+            
+            for karakter in self.karakterler:
+                is_unsuitable = False
+                reason = ""
+                
+                # 1. Manuel işaretleme kontrolü
+                if hasattr(karakter, 'is_out_of_tolerance') and karakter.is_out_of_tolerance:
+                    is_unsuitable = True
+                    reason = "Manuel işaretleme"
+                
+                # 2. Otomatik tolerance kontrolü (actual değeri varsa)
+                elif karakter.actual:
+                    try:
+                        # Karakter'in kendi tolerance kontrol metodunu kullan
+                        is_compliant, status_message = karakter.check_tolerance_compliance(karakter.actual)
+                        if not is_compliant:
+                            is_unsuitable = True
+                            reason = "Otomatik tolerance kontrolü"
+                    except:
+                        # Tolerance kontrol metodu yoksa, manual kontrol
+                        try:
+                            actual_float = float(str(karakter.actual).replace(',', '.'))
+                            has_lower = hasattr(karakter, 'lower_limit') and karakter.lower_limit is not None
+                            has_upper = hasattr(karakter, 'upper_limit') and karakter.upper_limit is not None
+                            
+                            if has_lower and has_upper:
+                                if not (karakter.lower_limit <= actual_float <= karakter.upper_limit):
+                                    is_unsuitable = True
+                                    reason = "Manual tolerance kontrolü (bilateral)"
+                            elif has_upper:
+                                if actual_float > karakter.upper_limit:
+                                    is_unsuitable = True
+                                    reason = "Manual tolerance kontrolü (upper)"
+                            elif has_lower:
+                                if actual_float < karakter.lower_limit:
+                                    is_unsuitable = True
+                                    reason = "Manual tolerance kontrolü (lower)"
+                        except:
+                            pass  # Sayısal olmayan actual değeri
+                
+                if is_unsuitable:
+                    out_of_tolerance_karakterler.append(karakter)
+                    print(f"EXCEL EXPORT: {karakter.item_no} uygunsuz - {reason}")
+            
+            print(f"EXCEL EXPORT: Toplam uygunsuz karakter: {len(out_of_tolerance_karakterler)}")
+
+            # Ana veri için DataFrame oluştur
+            data = []
+            for karakter in self.karakterler:
+                # Uygunsuz durumunu belirle (hem manuel hem otomatik)
+                is_out_of_tolerance = karakter in out_of_tolerance_karakterler
+                
+                row_data = {
+                    'Item No': karakter.item_no,
+                    'Dimension': karakter.dimension,
+                    'Tooling': karakter.tooling,
+                    'BP Zone': karakter.bp_zone,
+                    'Remarks': karakter.remarks,
+                    'Inspection Level': karakter.inspection_level,
+                    'Actual': karakter.actual,
+                    'Badge': karakter.badge,
+                    'Out of Tolerance': '❌ Uygunsuz' if is_out_of_tolerance else ''
+                }
+
+                # Parsed dimension bilgileri
+                if hasattr(karakter, 'tolerance_type') and karakter.tolerance_type:
+                    row_data['Tolerance Type'] = karakter.tolerance_type
+                if hasattr(karakter, 'nominal_value') and karakter.nominal_value is not None:
+                    row_data['Nominal Value'] = karakter.nominal_value
+                if hasattr(karakter, 'upper_limit') and karakter.upper_limit is not None:
+                    row_data['Upper Limit'] = karakter.upper_limit
+                if hasattr(karakter, 'lower_limit') and karakter.lower_limit is not None:
+                    row_data['Lower Limit'] = karakter.lower_limit
+
+                data.append(row_data)
+
+            # Ana veri DataFrame'i
+            main_df = pd.DataFrame(data)
+
+            # Excel writer oluştur
+            with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+                # Ana veri sayfası
+                main_df.to_excel(writer, sheet_name='Measurements', index=False)
+
+                # Uygunsuz karakterler için DISPOSITION sayfası
+                if out_of_tolerance_karakterler:
+                    print(f"EXCEL EXPORT: DISPOSITION sayfası oluşturuluyor: {len(out_of_tolerance_karakterler)} karakter")
+                    self._create_disposition_sheet(writer, out_of_tolerance_karakterler)
+                else:
+                    print("EXCEL EXPORT: Hiç uygunsuz karakter yok, DISPOSITION sayfası oluşturulmayacak")
+
+                # İstatistik sayfası
+                self._create_statistics_sheet(writer, out_of_tolerance_charakterer=out_of_tolerance_charakterer)
+
+            messagebox.showinfo("Başarılı", f"Excel'e aktarıldı:\n{excel_path}\nUygunsuz karakter sayısı: {len(out_of_tolerance_karakterler)}")
+
+        except Exception as e:
+            print(f"EXCEL EXPORT: Excel export hatası: {e}")
+            import traceback
+            traceback.print_exc()
+            messagebox.showerror("Hata", f"Excel aktarım hatası: {str(e)}")
+
+    def _create_statistics_sheet(self, writer, out_of_tolerance_charakterer=None):
+        """İstatistik sayfası oluşturur - uygunsuz karakter listesi ile"""
+        try:
+            if out_of_tolerance_charakterer is None:
+                out_of_tolerance_charakterer = []
+                
+            # İstatistik verileri topla
+            total_karakterler = len(self.karakterler)
+            measured = len([k for k in self.karakterler if k.actual])
+            unmeasured = total_karakterler - measured
+            out_of_tolerance_count = len(out_of_tolerance_charakterer)
+            
+            # Tolerans istatistikleri (sadece uygunsuz olmayan karakterler için)
+            tolerance_compliant = 0
+            tolerance_violations = 0
+            
+            for karakter in self.karakterler:
+                if (karakter.actual and 
+                    karakter not in out_of_tolerance_charakterer and  # Uygunsuz listesinde değilse
+                    (hasattr(karakter, 'lower_limit') or hasattr(karakter, 'upper_limit'))):
+                    
+                    try:
+                        actual_float = float(str(karakter.actual).replace(',', '.'))
+                        has_lower = hasattr(karakter, 'lower_limit') and karakter.lower_limit is not None
+                        has_upper = hasattr(karakter, 'upper_limit') and karakter.upper_limit is not None
+                        
+                        if has_lower and has_upper:
+                            if karakter.lower_limit <= actual_float <= karakter.upper_limit:
+                                tolerance_compliant += 1
+                            else:
+                                tolerance_violations += 1
+                        elif has_upper:
+                            if actual_float <= karakter.upper_limit:
+                                tolerance_compliant += 1
+                            else:
+                                tolerance_violations += 1
+                        elif has_lower:
+                            if actual_float >= karakter.lower_limit:
+                                tolerance_compliant += 1
+                            else:
+                                tolerance_violations += 1
+                    except:
+                        pass
+            
+            # Proje bilgileri
+            project_info = self.project_manager.get_project_info()
+            
+            # İstatistik DataFrame'i oluştur
+            stats_data = {
+                'Metrik': [
+                    'Proje Tipi',
+                    'Parça Numarası', 
+                    'Operasyon No',
+                    'Seri No',
+                    '',
+                    'Toplam Karakter',
+                    'Ölçülen Karakter',
+                    'Bekleyen Karakter',
+                    'Tamamlanma Oranı (%)',
+                    '',
+                    'Tolerans İçi',
+                    'Tolerans Dışı',
+                    'Uygunsuz İşaretli (Toplam)',
+                    '',
+                    'Parser Yakalama',
+                    'DISPOSITION Raporu'
+                ],
+                'Değer': [
+                    project_info.get('PROJE_TIPI', ''),
+                    project_info.get('PARCA_NUMARASI', ''),
+                    project_info.get('OPERASYON_NO', ''),
+                    project_info.get('SERI_NO', ''),
+                    '',
+                    total_karakterler,
+                    measured,
+                    unmeasured,
+                    f"{(measured / total_karakterler * 100):.1f}" if total_karakterler > 0 else "0",
+                    '',
+                    tolerance_compliant,
+                    tolerance_violations,
+                    out_of_tolerance_count,
+                    '',
+                    len([k for k in self.karakterler if hasattr(k, 'tolerance_type') and k.tolerance_type]),
+                    f"{out_of_tolerance_count} karakter" if out_of_tolerance_count > 0 else "Uygunsuz karakter yok"
+                ]
+            }
+            
+            stats_df = pd.DataFrame(stats_data)
+            stats_df.to_excel(writer, sheet_name='İstatistikler', index=False)
+            
+            print("✓ İstatistik sayfası oluşturuldu")
+            
+        except Exception as e:
+            print(f"HATA: İstatistik sayfası oluşturma hatası: {e}")
