@@ -1,0 +1,181 @@
+def update_actual_values(self, karakterler: List[TeknikResimKarakteri]) -> bool:
+        """Word tablosundaki ACTUAL kolonunu günceller (tolerans kontrolü ve uygunsuz işaretleme ile)"""
+        if not self.current_document:
+            print("HATA: Önce Word dosyası yüklenmelidir")
+            return False
+        
+        try:
+            print("ACTUAL değerleri Word tablosuna yazılıyor (tolerans kontrolü ve uygunsuz işaretleme ile)...")
+            
+            # Karakterleri item_no ile hızlı erişim için dict'e çevir
+            karakter_dict = {k.item_no: k for k in karakterler}
+            updated_count = 0
+            tolerance_violations = 0
+            unsuitable_markings = 0
+            
+            for table_idx, table in enumerate(self.current_document.tables):
+                print(f"  Tablo {table_idx + 1} kontrol ediliyor...")
+                
+                # Kolon indekslerini bul
+                item_no_col_index, actual_col_index = self.find_table_columns(table)
+                
+                if actual_col_index is None:
+                    print(f"    Tablo {table_idx + 1}'de ACTUAL kolonu bulunamadı")
+                    continue
+                
+                if item_no_col_index is None:
+                    print(f"    Tablo {table_idx + 1}'de ITEM NO kolonu bulunamadı")
+                    continue
+                
+                print(f"    ITEM NO kolonu: {item_no_col_index}, ACTUAL kolonu: {actual_col_index}")
+                
+                # Veri satırlarını güncelle (header'ı atla)
+                for row_idx, row in enumerate(table.rows[1:], start=1):
+                    try:
+                        # Güvenlik kontrolü - yeterli hücre var mı?
+                        if len(row.cells) <= max(item_no_col_index, actual_col_index):
+                            print(f"    ⚠ Satır {row_idx}: Yeterli hücre yok ({len(row.cells)} hücre)")
+                            continue
+                        
+                        # ITEM NO'yu al
+                        item_no_cell = row.cells[item_no_col_index]
+                        item_no = item_no_cell.text.strip()
+                        
+                        # Bu ITEM NO'ya sahip karakter var mı ve actual değeri var mı?
+                        if item_no in karakter_dict:
+                            karakter = karakter_dict[item_no]
+                            
+                            if karakter.actual:
+                                # ACTUAL hücresini güncelle
+                                actual_cell = row.cells[actual_col_index]
+                                actual_value = str(karakter.actual)
+                                
+                                # Önce uygunsuz işaretleme kontrolü
+                                if karakter.is_out_of_tolerance:
+                                    # Uygunsuz işaretli - kırmızı arka plan yap
+                                    success = self.apply_red_background(actual_cell, actual_value)
+                                    unsuitable_markings += 1
+                                    format_type = "kırmızı arka plan (uygunsuz)"
+                                    print(f"    ❌ {item_no}: {actual_value} (Uygunsuz işaretli - {format_type})")
+                                    
+                                else:
+                                    # Normal tolerans kontrolü yap
+                                    tolerance_results, tolerance_status = self.check_multiple_values_tolerance(actual_value, karakter)
+                                    
+                                    if tolerance_results:
+                                        # En az bir değer var
+                                        any_out_of_tolerance = not all(tolerance_results)
+                                        
+                                        if any_out_of_tolerance:
+                                            # Tolerans dışı değer(ler) var - sarı highlight uygula
+                                            success = self.format_tolerance_violation(actual_cell, actual_value, tolerance_results)
+                                            
+                                            tolerance_violations += 1
+                                            format_type = "sarı highlight"
+                                            print(f"    🟡 {item_no}: {actual_value} (Tolerans dışı - {format_type})")
+                                            print(f"      📊 {tolerance_status}")
+                                        else:
+                                            # Tüm değerler tolerans içinde - normal yaz
+                                            actual_cell.text = actual_value
+                                            print(f"    ✅ {item_no}: {actual_value} (Tolerans içinde)")
+                                    else:
+                                        # Tolerans kontrolü yapılamadı - normal yaz
+                                        actual_cell.text = actual_value
+                                        print(f"    ○ {item_no}: {actual_value} (Tolerans kontrol edilemedi)")
+                                
+                                updated_count += 1
+                            else:
+                                print(f"    ○ {item_no}: Ölçüm değeri yok")
+                        else:
+                            # ITEM NO bulunamadı - sadece debug için yazdır
+                            if item_no and item_no.upper().startswith('KN'):
+                                print(f"    ? {item_no}: Karakterler listesinde bulunamadı")
+                                
+                    except Exception as e:
+                        print(f"    ✗ Satır {row_idx} güncellenirken hata: {e}")
+                        continue
+            
+            print(f"✓ Toplam {updated_count} ACTUAL değeri güncellendi")
+            if tolerance_violations > 0:
+                print(f"🟡 {tolerance_violations} tolerans dışı değer sarı highlight ile işaretlendi")
+            if unsuitable_markings > 0:
+                print(f"❌ {unsuitable_markings} uygunsuz değer kırmızı arka plan ile işaretlendi")
+            
+            return updated_count > 0
+            
+        except Exception as e:
+            print(f"HATA: ACTUAL değerleri güncellenirken hata: {e}")
+            return False
+
+    def apply_red_background(self, cell, text: str) -> bool:
+        """
+        Uygunsuz işaretli değerler için kırmızı arka plan uygular
+        """
+        try:
+            # Metni yaz
+            cell.text = text
+            
+            # Hücre arka planını kırmızı yap
+            tc_pr = cell._tc.get_or_add_tcPr()
+            
+            # Eski shading'i kaldır
+            for shading in tc_pr.findall(qn('w:shd')):
+                tc_pr.remove(shading)
+            
+            # Kırmızı arka plan ekle
+            shading_elm = OxmlElement(qn('w:shd'))
+            shading_elm.set(qn('w:val'), 'clear')
+            shading_elm.set(qn('w:color'), 'auto')
+            shading_elm.set(qn('w:fill'), 'FF6666')  # Açık kırmızı
+            
+            tc_pr.append(shading_elm)
+            
+            # Metni de beyaz yap (kontrast için)
+            paragraph = cell.paragraphs[0]
+            if paragraph.runs:
+                for run in paragraph.runs:
+                    run.font.color.rgb = RGBColor(255, 255, 255)  # Beyaz
+            
+            print(f"      🔴 Hücre kırmızı arka plan yapıldı: {text}")
+            return True
+            
+        except Exception as e:
+            print(f"      ⚠ Kırmızı arka plan hatası: {e}")
+            # Fallback: Sadece metni yaz
+            cell.text = text
+            return False
+
+    def get_statistics(self, karakterler: List[TeknikResimKarakteri]) -> dict:
+        """Ölçüm istatistiklerini döner (uygunsuz işaretleme dahil)"""
+        total = len(karakterler)
+        measured = len([k for k in karakterler if k.actual])
+        unmeasured = total - measured
+        
+        # Tolerans istatistikleri
+        tolerance_violations = 0
+        tolerance_compliant = 0
+        no_tolerance_defined = 0
+        unsuitable_markings = len([k for k in karakterler if k.is_out_of_tolerance])
+        
+        for karakter in karakterler:
+            if karakter.actual and not karakter.is_out_of_tolerance:  # Uygunsuz işaretli değilse
+                tolerance_results, _ = self.check_multiple_values_tolerance(karakter.actual, karakter)
+                
+                if tolerance_results:
+                    if not all(tolerance_results):
+                        tolerance_violations += 1
+                    else:
+                        tolerance_compliant += 1
+                else:
+                    no_tolerance_defined += 1
+        
+        return {
+            'total': total,
+            'measured': measured,
+            'unmeasured': unmeasured,
+            'completion_percentage': (measured / total * 100) if total > 0 else 0,
+            'tolerance_violations': tolerance_violations,
+            'tolerance_compliant': tolerance_compliant,
+            'no_tolerance_defined': no_tolerance_defined,
+            'unsuitable_markings': unsuitable_markings  # Yeni eklenen
+        }
