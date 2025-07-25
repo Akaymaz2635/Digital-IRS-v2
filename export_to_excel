@@ -1,0 +1,269 @@
+def export_to_excel(self):
+        """Excel'e aktar - normal veri + uygunsuz karakterler için disposition raporu"""
+        if not self.karakterler:
+            messagebox.showwarning("Uyarı", "Veri yok!")
+            return
+
+        try:
+            project_folder = self.project_manager.get_project_folder()
+            if not project_folder:
+                messagebox.showerror("Hata", "Proje klasörü bulunamadı!")
+                return
+
+            # Excel dosyası yolu
+            excel_path = os.path.join(project_folder, "measurement_data.xlsx")
+
+            # Ana veri için DataFrame oluştur
+            data = []
+            for karakter in self.karakterler:
+                row_data = {
+                    'Item No': karakter.item_no,
+                    'Dimension': karakter.dimension,
+                    'Tooling': karakter.tooling,
+                    'BP Zone': karakter.bp_zone,
+                    'Remarks': karakter.remarks,
+                    'Inspection Level': karakter.inspection_level,
+                    'Actual': karakter.actual,
+                    'Badge': karakter.badge,
+                    'Out of Tolerance': '❌ Uygunsuz' if getattr(karakter, 'is_out_of_tolerance', False) else ''
+                }
+
+                # Parsed dimension bilgileri
+                if hasattr(karakter, 'tolerance_type') and karakter.tolerance_type:
+                    row_data['Tolerance Type'] = karakter.tolerance_type
+                if hasattr(karakter, 'nominal_value') and karakter.nominal_value is not None:
+                    row_data['Nominal Value'] = karakter.nominal_value
+                if hasattr(karakter, 'upper_limit') and karakter.upper_limit is not None:
+                    row_data['Upper Limit'] = karakter.upper_limit
+                if hasattr(karakter, 'lower_limit') and karakter.lower_limit is not None:
+                    row_data['Lower Limit'] = karakter.lower_limit
+
+                data.append(row_data)
+
+            # Ana veri DataFrame'i
+            main_df = pd.DataFrame(data)
+
+            # Excel writer oluştur
+            with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+                # Ana veri sayfası
+                main_df.to_excel(writer, sheet_name='Measurements', index=False)
+
+                # Uygunsuz karakterler için DISPOSITION sayfası
+                out_of_tolerance_karakterler = [k for k in self.karakterler 
+                                              if getattr(k, 'is_out_of_tolerance', False)]
+                
+                if out_of_tolerance_karakterler:
+                    self._create_disposition_sheet(writer, out_of_tolerance_karakterler)
+
+                # İstatistik sayfası
+                self._create_statistics_sheet(writer)
+
+            messagebox.showinfo("Başarılı", f"Excel'e aktarıldı:\n{excel_path}")
+
+        except Exception as e:
+            messagebox.showerror("Hata", f"Excel aktarım hatası: {str(e)}")
+
+    def _create_disposition_sheet(self, writer, out_of_tolerance_karakterler):
+        """Uygunsuz karakterler için DISPOSITION sayfası oluşturur"""
+        try:
+            import openpyxl
+            from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
+            
+            # DISPOSITION sayfası oluştur
+            workbook = writer.book
+            worksheet = workbook.create_sheet('DISPOSITION')
+            
+            # Başlık ve worksheet tanımları (A1'den başlayarak)
+            worksheet['A1'] = 'Sheet Name : DISPOSITION'
+            worksheet['A2'] = 'WS[A1]:Defect Description'
+            worksheet['A3'] = 'WS[B1]:Disposition Type'
+            worksheet['A4'] = 'WS[C1]:Serial Number'
+            worksheet['A5'] = 'WS[D1]:Operation Number'
+            worksheet['A6'] = 'WS[E1]:Cause OP. Number'
+            worksheet['A7'] = 'WS[F1]:Quantity'
+            worksheet['A8'] = 'WS[G1]:Cause Code'
+            
+            # Boş satır
+            worksheet['A9'] = ''
+            
+            # Her uygunsuz karakter için satır oluştur
+            current_row = 10  # A10'dan başla
+            
+            for i, karakter in enumerate(out_of_tolerance_karakterler):
+                # Defect Description oluştur
+                defect_description = f"[{karakter.item_no}] {karakter.dimension} ({karakter.bp_zone}) checks {karakter.actual}"
+                
+                # Satır verilerini yaz
+                worksheet[f'A{current_row}'] = 'Defect Description'
+                worksheet[f'A{current_row + 1}'] = f'text = f"{defect_description}"'
+                
+                # Proje bilgilerini al
+                project_info = self.project_manager.get_project_info()
+                
+                # Diğer alanlar için varsayılan değerler
+                worksheet[f'A{current_row + 2}'] = 'Disposition Type'
+                worksheet[f'B{current_row + 2}'] = 'SCRAP'  # Varsayılan
+                
+                worksheet[f'A{current_row + 3}'] = 'Serial Number'
+                worksheet[f'B{current_row + 3}'] = project_info.get('SERI_NO', '')
+                
+                worksheet[f'A{current_row + 4}'] = 'Operation Number'
+                worksheet[f'B{current_row + 4}'] = project_info.get('OPERASYON_NO', '')
+                
+                worksheet[f'A{current_row + 5}'] = 'Cause OP. Number'
+                worksheet[f'B{current_row + 5}'] = project_info.get('OPERASYON_NO', '')
+                
+                worksheet[f'A{current_row + 6}'] = 'Quantity'
+                worksheet[f'B{current_row + 6}'] = '1'
+                
+                worksheet[f'A{current_row + 7}'] = 'Cause Code'
+                worksheet[f'B{current_row + 7}'] = 'OUT_OF_TOLERANCE'
+                
+                # Ayırıcı boş satır
+                current_row += 9
+            
+            # Hücre formatlaması
+            self._format_disposition_sheet(worksheet, len(out_of_tolerance_karakterler))
+            
+            print(f"✓ DISPOSITION sayfası oluşturuldu: {len(out_of_tolerance_karakterler)} uygunsuz karakter")
+            
+        except Exception as e:
+            print(f"HATA: DISPOSITION sayfası oluşturma hatası: {e}")
+
+    def _format_disposition_sheet(self, worksheet, character_count):
+        """DISPOSITION sayfasını formatlar"""
+        try:
+            from openpyxl.styles import Font, Alignment, PatternFill
+            
+            # Başlık formatı (A1)
+            worksheet['A1'].font = Font(bold=True, size=14)
+            
+            # WS tanımları formatı (A2:A8)
+            for row in range(2, 9):
+                cell = worksheet[f'A{row}']
+                cell.font = Font(bold=True, size=10)
+                cell.fill = PatternFill(start_color="E6E6FA", end_color="E6E6FA", fill_type="solid")
+            
+            # Sütun genişlikleri
+            worksheet.column_dimensions['A'].width = 25
+            worksheet.column_dimensions['B'].width = 20
+            worksheet.column_dimensions['C'].width = 15
+            
+            # Veri alanları için format
+            current_row = 10
+            for i in range(character_count):
+                # Label hücreleri (A sütunu)
+                for offset in range(8):
+                    if current_row + offset <= worksheet.max_row:
+                        cell = worksheet[f'A{current_row + offset}']
+                        if offset == 1:  # text = f"..." satırı
+                            cell.font = Font(italic=True, size=9)
+                            cell.fill = PatternFill(start_color="FFF8DC", end_color="FFF8DC", fill_type="solid")
+                        else:
+                            cell.font = Font(bold=True, size=10)
+                
+                # Değer hücreleri (B sütunu)
+                for offset in range(2, 8):
+                    if current_row + offset <= worksheet.max_row:
+                        cell = worksheet[f'B{current_row + offset}']
+                        cell.font = Font(size=10)
+                        cell.alignment = Alignment(horizontal='left')
+                
+                current_row += 9
+            
+            print("✓ DISPOSITION sayfası formatlandı")
+            
+        except Exception as e:
+            print(f"HATA: DISPOSITION formatlaması hatası: {e}")
+
+    def _create_statistics_sheet(self, writer):
+        """İstatistik sayfası oluşturur"""
+        try:
+            # İstatistik verileri topla
+            total_karakterler = len(self.karakterler)
+            measured = len([k for k in self.karakterler if k.actual])
+            unmeasured = total_karakterler - measured
+            out_of_tolerance = len([k for k in self.karakterler if getattr(k, 'is_out_of_tolerance', False)])
+            
+            # Tolerans istatistikleri
+            tolerance_compliant = 0
+            tolerance_violations = 0
+            
+            for karakter in self.karakterler:
+                if (karakter.actual and 
+                    not getattr(karakter, 'is_out_of_tolerance', False) and
+                    (hasattr(karakter, 'lower_limit') or hasattr(karakter, 'upper_limit'))):
+                    
+                    try:
+                        actual_float = float(str(karakter.actual).replace(',', '.'))
+                        has_lower = hasattr(karakter, 'lower_limit') and karakter.lower_limit is not None
+                        has_upper = hasattr(karakter, 'upper_limit') and karakter.upper_limit is not None
+                        
+                        if has_lower and has_upper:
+                            if karakter.lower_limit <= actual_float <= karakter.upper_limit:
+                                tolerance_compliant += 1
+                            else:
+                                tolerance_violations += 1
+                        elif has_upper:
+                            if actual_float <= karakter.upper_limit:
+                                tolerance_compliant += 1
+                            else:
+                                tolerance_violations += 1
+                        elif has_lower:
+                            if actual_float >= karakter.lower_limit:
+                                tolerance_compliant += 1
+                            else:
+                                tolerance_violations += 1
+                    except:
+                        pass
+            
+            # Proje bilgileri
+            project_info = self.project_manager.get_project_info()
+            
+            # İstatistik DataFrame'i oluştur
+            stats_data = {
+                'Metrik': [
+                    'Proje Tipi',
+                    'Parça Numarası', 
+                    'Operasyon No',
+                    'Seri No',
+                    '',
+                    'Toplam Karakter',
+                    'Ölçülen Karakter',
+                    'Bekleyen Karakter',
+                    'Tamamlanma Oranı (%)',
+                    '',
+                    'Tolerans İçi',
+                    'Tolerans Dışı',
+                    'Uygunsuz İşaretli',
+                    '',
+                    'Parser Yakalama',
+                    'Manuel İşaretleme'
+                ],
+                'Değer': [
+                    project_info.get('PROJE_TIPI', ''),
+                    project_info.get('PARCA_NUMARASI', ''),
+                    project_info.get('OPERASYON_NO', ''),
+                    project_info.get('SERI_NO', ''),
+                    '',
+                    total_karakterler,
+                    measured,
+                    unmeasured,
+                    f"{(measured / total_karakterler * 100):.1f}" if total_karakterler > 0 else "0",
+                    '',
+                    tolerance_compliant,
+                    tolerance_violations,
+                    out_of_tolerance,
+                    '',
+                    len([k for k in self.karakterler if hasattr(k, 'tolerance_type') and k.tolerance_type]),
+                    out_of_tolerance
+                ]
+            }
+            
+            stats_df = pd.DataFrame(stats_data)
+            stats_df.to_excel(writer, sheet_name='İstatistikler', index=False)
+            
+            print("✓ İstatistik sayfası oluşturuldu")
+            
+        except Exception as e:
+            print(f"HATA: İstatistik sayfası oluşturma hatası: {e}")
