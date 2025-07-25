@@ -1,0 +1,126 @@
+def create_left_panel(self):
+        """Sol panel - karakter görünümü"""
+        left_frame = ctk.CTkFrame(self)
+        left_frame.grid(row=1, column=0, sticky="nsew", padx=(10, 5), pady=10)
+        left_frame.grid_rowconfigure(0, weight=1)
+        left_frame.grid_columnconfigure(0, weight=1)
+
+        # Karakter görünümü - doğrudan left_frame içinde
+        self.karakter_view = SingleKarakterView(
+            left_frame,
+            on_update_callback=self.on_karakter_updated
+        )
+        self.karakter_view.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10, 5))
+
+        # Alt panel - navigasyon ve butonlar (SABIT)
+        bottom_panel = ctk.CTkFrame(left_frame)
+        bottom_panel.grid(row=1, column=0, sticky="ew", padx=10, pady=(5, 10))
+        bottom_panel.grid_columnconfigure(0, weight=1)
+
+        # Navigasyon paneli
+        self.navigation_panel = NavigationPanel(
+            bottom_panel,
+            on_navigate_callback=self.navigate_to
+        )
+        self.navigation_panel.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+
+        # Buton frame - Kaydet, Temizle, Uygunsuz İşaretle, Lot Detayı aynı satırda
+        button_frame = ctk.CTkFrame(bottom_panel)
+        button_frame.grid(row=1, column=0, sticky="ew", pady=5)
+
+        # Kaydet butonu
+        self.save_btn = ctk.CTkButton(
+            button_frame,
+            text="💾 Kaydet",
+            command=self.save_current_measurement,
+            font=ctk.CTkFont(size=12),
+            width=100,
+            height=32
+        )
+        self.save_btn.pack(side="left", padx=5, pady=5)
+
+        # Temizle butonu
+        self.clear_btn = ctk.CTkButton(
+            button_frame,
+            text="🗑️ Temizle",
+            command=self.clear_current_measurement,
+            font=ctk.CTkFont(size=12),
+            width=100,
+            height=32,
+            fg_color="gray"
+        )
+        self.clear_btn.pack(side="left", padx=5, pady=5)
+
+        # ===== YENİ: Uygunsuz işaretleme butonu =====
+        self.mark_unsuitable_btn = ctk.CTkButton(
+            button_frame,
+            text="❌ Uygunsuz",
+            command=self.toggle_unsuitable_marking,
+            font=ctk.CTkFont(size=12),
+            width=120,
+            height=32,
+            fg_color="red",
+            hover_color="darkred"
+        )
+        self.mark_unsuitable_btn.pack(side="left", padx=5, pady=5)
+        # ==========================================
+
+        # Lot detay butonu
+        self.lot_detail_btn = ctk.CTkButton(
+            button_frame,
+            text="🔍 Lot Detayı",
+            command=self.show_lot_detail,
+            font=ctk.CTkFont(size=12),
+            width=120,
+            height=32,
+            state="disabled"
+        )
+        self.lot_detail_btn.pack(side="right", padx=5, pady=5)
+
+    # ===== YENİ METODLAR =====
+    def toggle_unsuitable_marking(self):
+        """Mevcut karakter için uygunsuz işaretlemesini değiştirir"""
+        if not self.karakterler or self.current_index >= len(self.karakterler):
+            return
+
+        karakter = self.karakterler[self.current_index]
+        
+        # Durumu değiştir
+        karakter.toggle_out_of_tolerance()
+        
+        # Buton text'ini güncelle
+        self.update_unsuitable_button_text(karakter)
+        
+        # Karakter görünümündeki tolerans bilgisini güncelle
+        self.show_current_karakter()
+        
+        # İstatistikleri güncelle
+        self.update_stats()
+        
+        # Status mesajı göster
+        status_text = "❌ Uygunsuz işaretlendi" if karakter.is_out_of_tolerance else "✅ Uygunsuz işareti kaldırıldı"
+        self.show_temp_message(f"{karakter.item_no}: {status_text}")
+
+    def update_unsuitable_button_text(self, karakter):
+        """Uygunsuz butonunun text'ini günceller"""
+        if karakter.is_out_of_tolerance:
+            self.mark_unsuitable_btn.configure(
+                text="✅ Uygun Yap",
+                fg_color="green",
+                hover_color="darkgreen"
+            )
+        else:
+            self.mark_unsuitable_btn.configure(
+                text="❌ Uygunsuz",
+                fg_color="red",
+                hover_color="darkred"
+            )
+
+    def show_current_karakter(self):
+        """Mevcut karakteri göster"""
+        if 0 <= self.current_index < len(self.karakterler):
+            karakter = self.karakterler[self.current_index]
+            self.karakter_view.load_karakter(karakter)
+            
+            # Uygunsuz buton durumunu güncelle
+            self.update_unsuitable_button_text(karakter)
