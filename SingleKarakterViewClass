@@ -1,0 +1,449 @@
+class SingleKarakterView(ctk.CTkFrame):
+    """Tek karakter görünümü - büyük ve detaylı - SCROLLABLE"""
+    
+    def __init__(self, parent, on_update_callback=None):
+        super().__init__(parent)
+        
+        self.current_karakter: Optional[TeknikResimKarakteri] = None
+        self.on_update_callback = on_update_callback
+        self.actual_entry = None
+        
+        self.setup_ui()
+    
+    def setup_ui(self):
+        """UI'ı oluşturur - Scrollable Canvas ile"""
+        
+        # Ana scrollable frame oluştur
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        
+        # Scrollable frame ekle
+        self.scrollable_frame = ctk.CTkScrollableFrame(
+            self,
+            width=600,
+            height=700,
+            corner_radius=10
+        )
+        self.scrollable_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        
+        # Scrollable frame içindeki grid ayarları
+        self.scrollable_frame.grid_columnconfigure(1, weight=1)
+        
+        # Başlık alanı
+        self.title_frame = ctk.CTkFrame(self.scrollable_frame)
+        self.title_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=(10, 5))
+        
+        self.item_label = ctk.CTkLabel(
+            self.title_frame,
+            text="Karakter seçilmedi",
+            font=ctk.CTkFont(size=24, weight="bold"),
+            text_color="white"
+        )
+        self.item_label.pack(pady=15)
+        
+        # Ana bilgiler frame
+        info_frame = ctk.CTkFrame(self.scrollable_frame)
+        info_frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
+        info_frame.grid_columnconfigure(1, weight=1)
+        
+        # Dimension
+        dim_label = ctk.CTkLabel(info_frame, text="Ölçü:", font=ctk.CTkFont(size=16, weight="bold"))
+        dim_label.grid(row=0, column=0, sticky="w", padx=15, pady=8)
+        
+        self.dim_value = ctk.CTkLabel(
+            info_frame, 
+            text="-",
+            font=ctk.CTkFont(size=16),
+            wraplength=300
+        )
+        self.dim_value.grid(row=0, column=1, sticky="w", padx=15, pady=8)
+        
+        # Tooling
+        tool_label = ctk.CTkLabel(info_frame, text="Ölçüm Aleti:", font=ctk.CTkFont(size=16, weight="bold"))
+        tool_label.grid(row=1, column=0, sticky="w", padx=15, pady=8)
+        
+        self.tool_value = ctk.CTkLabel(
+            info_frame, 
+            text="-",
+            font=ctk.CTkFont(size=16)
+        )
+        self.tool_value.grid(row=1, column=1, sticky="w", padx=15, pady=8)
+        
+        # BP Zone
+        zone_label = ctk.CTkLabel(info_frame, text="Bölge:", font=ctk.CTkFont(size=16, weight="bold"))
+        zone_label.grid(row=2, column=0, sticky="w", padx=15, pady=8)
+        
+        self.zone_value = ctk.CTkLabel(
+            info_frame, 
+            text="-",
+            font=ctk.CTkFont(size=16)
+        )
+        self.zone_value.grid(row=2, column=1, sticky="w", padx=15, pady=8)
+        
+        # Inspection Level
+        level_label = ctk.CTkLabel(info_frame, text="Kontrol Seviyesi:", font=ctk.CTkFont(size=16, weight="bold"))
+        level_label.grid(row=3, column=0, sticky="w", padx=15, pady=8)
+        
+        self.level_value = ctk.CTkLabel(
+            info_frame, 
+            text="-",
+            font=ctk.CTkFont(size=16)
+        )
+        self.level_value.grid(row=3, column=1, sticky="w", padx=15, pady=8)
+        
+        # Remarks
+        remarks_label = ctk.CTkLabel(info_frame, text="Açıklamalar:", font=ctk.CTkFont(size=16, weight="bold"))
+        remarks_label.grid(row=4, column=0, sticky="nw", padx=15, pady=8)
+        
+        self.remarks_value = ctk.CTkLabel(
+            info_frame, 
+            text="-",
+            font=ctk.CTkFont(size=14),
+            wraplength=350,
+            justify="left"
+        )
+        self.remarks_value.grid(row=4, column=1, sticky="w", padx=15, pady=8)
+        
+        # ===== PARSED DIMENSION BİLGİLERİ =====
+        
+        # Parsed Dimension başlığı
+        parsed_title = ctk.CTkLabel(
+            self.scrollable_frame,
+            text="📐 TOLERANCE ANALİZİ",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color="#4fc3f7"
+        )
+        parsed_title.grid(row=2, column=0, columnspan=2, pady=(15, 5))
+        
+        # Parsed bilgiler frame
+        parsed_frame = ctk.CTkFrame(self.scrollable_frame)
+        parsed_frame.grid(row=3, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
+        parsed_frame.grid_columnconfigure(1, weight=1)
+        
+        # Tolerance Type
+        tolerance_type_label = ctk.CTkLabel(parsed_frame, text="Tolerance Tipi:", font=ctk.CTkFont(size=14, weight="bold"))
+        tolerance_type_label.grid(row=0, column=0, sticky="w", padx=15, pady=6)
+        
+        self.tolerance_type_value = ctk.CTkLabel(
+            parsed_frame, 
+            text="-",
+            font=ctk.CTkFont(size=14),
+            text_color="lightblue"
+        )
+        self.tolerance_type_value.grid(row=0, column=1, sticky="w", padx=15, pady=6)
+        
+        # Nominal Value
+        nominal_label = ctk.CTkLabel(parsed_frame, text="Nominal Değer:", font=ctk.CTkFont(size=14, weight="bold"))
+        nominal_label.grid(row=1, column=0, sticky="w", padx=15, pady=6)
+        
+        self.nominal_value = ctk.CTkLabel(
+            parsed_frame, 
+            text="-",
+            font=ctk.CTkFont(size=14),
+            text_color="lightgreen"
+        )
+        self.nominal_value.grid(row=1, column=1, sticky="w", padx=15, pady=6)
+        
+        # Tolerance Limits
+        limits_label = ctk.CTkLabel(parsed_frame, text="Tolerance Sınırları:", font=ctk.CTkFont(size=14, weight="bold"))
+        limits_label.grid(row=2, column=0, sticky="w", padx=15, pady=6)
+        
+        self.limits_value = ctk.CTkLabel(
+            parsed_frame, 
+            text="-",
+            font=ctk.CTkFont(size=14),
+            text_color="yellow"
+        )
+        self.limits_value.grid(row=2, column=1, sticky="w", padx=15, pady=6)
+        
+        # ===== ÖLÇÜM GİRİŞİ FRAME =====
+        
+        # Ölçüm başlığı
+        measurement_title = ctk.CTkLabel(
+            self.scrollable_frame,
+            text="📏 ÖLÇÜM SONUCU",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color="yellow"
+        )
+        measurement_title.grid(row=4, column=0, columnspan=2, pady=(15, 5))
+        
+        # Ölçüm girişi frame
+        measurement_frame = ctk.CTkFrame(self.scrollable_frame)
+        measurement_frame.grid(row=5, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
+        measurement_frame.grid_columnconfigure(1, weight=1)
+        
+        # Mevcut değer göstergesi
+        current_label = ctk.CTkLabel(
+            measurement_frame,
+            text="Mevcut Değer:",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        current_label.grid(row=0, column=0, sticky="w", padx=15, pady=8)
+        
+        self.current_value_label = ctk.CTkLabel(
+            measurement_frame,
+            text="Henüz ölçüm yapılmadı",
+            font=ctk.CTkFont(size=14),
+            text_color="orange"
+        )
+        self.current_value_label.grid(row=0, column=1, sticky="w", padx=10, pady=8)
+        
+        # Yeni değer girişi
+        new_label = ctk.CTkLabel(
+            measurement_frame,
+            text="Yeni Ölçüm:",
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        new_label.grid(row=1, column=0, sticky="w", padx=15, pady=8)
+        
+        # Entry ve buton frame
+        entry_frame = ctk.CTkFrame(measurement_frame, fg_color="transparent")
+        entry_frame.grid(row=1, column=1, sticky="ew", padx=10, pady=8)
+        entry_frame.grid_columnconfigure(0, weight=1)
+        
+        self.actual_entry = ctk.CTkEntry(
+            entry_frame,
+            placeholder_text="Ölçüm değerini girin (örn: 25.48)",
+            width=200,
+            height=35,
+            font=ctk.CTkFont(size=14)
+        )
+        self.actual_entry.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        
+        # Kaydet butonu
+        self.save_button = ctk.CTkButton(
+            entry_frame,
+            text="Kaydet",
+            command=self.save_measurement,
+            width=80,
+            height=35,
+            font=ctk.CTkFont(size=14, weight="bold")
+        )
+        self.save_button.grid(row=0, column=1, sticky="w")
+        
+        # Temizle butonu
+        clear_button = ctk.CTkButton(
+            measurement_frame,
+            text="🗑️ Temizle",
+            command=self.clear_measurement,
+            width=100,
+            height=30,
+            font=ctk.CTkFont(size=12),
+            fg_color="gray",
+            hover_color="darkgray"
+        )
+        clear_button.grid(row=2, column=1, sticky="w", padx=10, pady=5)
+        
+        # Status mesajı
+        self.status_label = ctk.CTkLabel(
+            measurement_frame,
+            text="",
+            font=ctk.CTkFont(size=12),
+            wraplength=400
+        )
+        self.status_label.grid(row=3, column=0, columnspan=2, pady=10)
+        
+        # ===== EK BİLGİLER FRAME =====
+        
+        # Ek bilgiler başlığı
+        extra_title = ctk.CTkLabel(
+            self.scrollable_frame,
+            text="ℹ️ EK BİLGİLER",
+            font=ctk.CTkFont(size=16, weight="bold"),
+            text_color="#90EE90"
+        )
+        extra_title.grid(row=6, column=0, columnspan=2, pady=(15, 5))
+        
+        # Ek bilgiler frame
+        extra_frame = ctk.CTkFrame(self.scrollable_frame)
+        extra_frame.grid(row=7, column=0, columnspan=2, sticky="ew", padx=10, pady=(5, 15))
+        extra_frame.grid_columnconfigure(1, weight=1)
+        
+        # Badge
+        badge_label = ctk.CTkLabel(extra_frame, text="Badge:", font=ctk.CTkFont(size=12, weight="bold"))
+        badge_label.grid(row=0, column=0, sticky="w", padx=15, pady=5)
+        
+        self.badge_value = ctk.CTkLabel(
+            extra_frame, 
+            text="-",
+            font=ctk.CTkFont(size=12),
+            text_color="lightgray"
+        )
+        self.badge_value.grid(row=0, column=1, sticky="w", padx=15, pady=5)
+        
+        # Enter tuşu ile kaydetme
+        self.actual_entry.bind('<Return>', lambda e: self.save_measurement())
+        
+        # Focus Entry'e ver
+        self.after(100, lambda: self.actual_entry.focus())
+
+    def load_karakter(self, karakter: TeknikResimKarakteri):
+        """Karakteri yükler ve gösterir"""
+        self.current_karakter = karakter
+        
+        # Bilgileri güncelle
+        self.item_label.configure(text=f"Item: {karakter.item_no}")
+        self.dim_value.configure(text=karakter.dimension)
+        self.tool_value.configure(text=karakter.tooling)
+        self.zone_value.configure(text=karakter.bp_zone or "Belirtilmemiş")
+        self.level_value.configure(text=karakter.inspection_level or "100%")
+        self.remarks_value.configure(text=karakter.remarks or "Açıklama yok")
+        self.badge_value.configure(text=karakter.badge or "Belirtilmemiş")
+        
+        # ===== PARSED DIMENSION BİLGİLERİNİ GÖSTER =====
+        if hasattr(karakter, 'parsed_dimension') and karakter.parsed_dimension and hasattr(karakter, 'tolerance_type') and karakter.tolerance_type:
+            # Tolerance Type
+            self.tolerance_type_value.configure(
+                text=karakter.tolerance_type.capitalize(),
+                text_color="lightblue"
+            )
+            
+            # Nominal Value
+            if hasattr(karakter, 'nominal_value') and karakter.nominal_value is not None:
+                self.nominal_value.configure(
+                    text=f"{karakter.nominal_value}",
+                    text_color="lightgreen"
+                )
+            else:
+                self.nominal_value.configure(text="Tanımsız", text_color="gray")
+            
+            # Tolerance Limits
+            has_lower = hasattr(karakter, 'lower_limit') and karakter.lower_limit is not None
+            has_upper = hasattr(karakter, 'upper_limit') and karakter.upper_limit is not None
+            
+            if has_lower and has_upper:
+                limits_text = f"{karakter.lower_limit} ↔ {karakter.upper_limit}"
+                self.limits_value.configure(text=limits_text, text_color="yellow")
+            elif has_upper:
+                self.limits_value.configure(text=f"Max: {karakter.upper_limit}", text_color="orange")
+            elif has_lower:
+                self.limits_value.configure(text=f"Min: {karakter.lower_limit}", text_color="orange")
+            else:
+                self.limits_value.configure(text="Limit yok", text_color="gray")
+        else:
+            # Parse edilemedi
+            self.tolerance_type_value.configure(text="Parse edilemedi", text_color="gray")
+            self.nominal_value.configure(text="-", text_color="gray")
+            self.limits_value.configure(text="-", text_color="gray")
+        
+        # ===== MEVCUT ÖLÇÜM DEĞERİNİ GÖSTER =====
+        if karakter.actual:
+            self.current_value_label.configure(
+                text=f"{karakter.actual}",
+                text_color="green"
+            )
+            # Entry'e de yerleştir
+            self.actual_entry.delete(0, tk.END)
+            self.actual_entry.insert(0, str(karakter.actual))
+        else:
+            self.current_value_label.configure(
+                text="Henüz ölçüm yapılmadı",
+                text_color="orange"
+            )
+            self.actual_entry.delete(0, tk.END)
+        
+        # Status'u temizle
+        self.status_label.configure(text="")
+        
+        # Scrollable frame'i en üste scroll et
+        self.scrollable_frame._parent_canvas.yview_moveto(0)
+        
+        # Entry'e focus ver
+        self.after(100, lambda: self.actual_entry.focus())
+    
+    def check_tolerance(self, actual_value: float) -> str:
+        """Tolerance kontrolü yapar"""
+        karakter = self.current_karakter
+        
+        if not karakter:
+            return ""
+        
+        # Parsed dimension bilgileri var mı kontrol et
+        if not (hasattr(karakter, 'lower_limit') or hasattr(karakter, 'upper_limit')):
+            return ""
+        
+        has_lower = hasattr(karakter, 'lower_limit') and karakter.lower_limit is not None
+        has_upper = hasattr(karakter, 'upper_limit') and karakter.upper_limit is not None
+        
+        if not has_lower and not has_upper:
+            return ""
+        
+        try:
+            if has_lower and has_upper:
+                if karakter.lower_limit <= actual_value <= karakter.upper_limit:
+                    return "✅ Tolerance İçinde"
+                else:
+                    return "❌ Tolerance Dışı"
+            elif has_upper:
+                if actual_value <= karakter.upper_limit:
+                    return "✅ Max Limit İçinde"
+                else:
+                    return "❌ Max Limit Aşıldı"
+            elif has_lower:
+                if actual_value >= karakter.lower_limit:
+                    return "✅ Min Limit İçinde"
+                else:
+                    return "❌ Min Limit Altında"
+        except:
+            pass
+        
+        return ""
+
+    def save_measurement(self):
+        """Ölçümü kaydeder"""
+        if not self.current_karakter:
+            return
+        
+        try:
+            new_value = self.actual_entry.get().strip()
+            
+            if new_value == "":
+                self.status_label.configure(text="⚠ Değer boş bırakılamaz", text_color="orange")
+                return
+            
+            # Virgülü noktaya çevir
+            new_value = new_value.replace(',', '.')
+            
+            # Sayı kontrolü (isteğe bağlı)
+            try:
+                actual_float = float(new_value)  # Sayı mı kontrol et
+                self.current_karakter.actual = new_value
+                
+                # Tolerance kontrolü
+                tolerance_status = self.check_tolerance(actual_float)
+                if tolerance_status:
+                    self.status_label.configure(text=f"✓ Kaydedildi! {tolerance_status}", text_color="green")
+                else:
+                    self.status_label.configure(text="✓ Ölçüm kaydedildi!", text_color="green")
+                    
+            except ValueError:
+                # Sayı değilse de kabul et
+                self.current_karakter.actual = new_value
+                self.status_label.configure(text="✓ Kaydedildi (metin değer)", text_color="green")
+            
+            # Mevcut değer göstergesini güncelle
+            self.current_value_label.configure(
+                text=f"{new_value}",
+                text_color="green"
+            )
+            
+            # Callback çağır
+            if self.on_update_callback:
+                self.on_update_callback(self.current_karakter)
+            
+        except Exception as e:
+            self.status_label.configure(text=f"Hata: {str(e)}", text_color="red")
+    
+    def clear_measurement(self):
+        """Ölçümü temizler"""
+        if self.current_karakter:
+            self.current_karakter.actual = None
+            self.actual_entry.delete(0, tk.END)
+            self.current_value_label.configure(
+                text="Henüz ölçüm yapılmadı",
+                text_color="orange"
+            )
+            self.status_label.configure(text="Ölçüm temizlendi", text_color="gray")
+            
+            if self.on_update_callback:
+                self.on_update_callback(self.current_karakter)
