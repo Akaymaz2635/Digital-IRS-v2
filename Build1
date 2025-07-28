@@ -1,0 +1,92 @@
+@echo off
+echo =====================================
+echo    Dijital IRS - PyInstaller Build
+echo =====================================
+echo.
+
+echo [1/4] Eski build dosyalarini temizleniyor...
+if exist "dist" rmdir /s /q "dist"
+if exist "build" rmdir /s /q "build"
+if exist "*.spec" del /q "*.spec"
+echo   ✓ Temizlik tamamlandi
+
+echo.
+echo [2/4] PyInstaller baslatiliyor...
+
+pyinstaller --onefile --windowed --icon=caliper.ico ^
+--add-data "src;src" ^
+--collect-all=tkinter ^
+--collect-all=_tkinter ^
+--collect-all=docx ^
+--collect-all=customtkinter ^
+--collect-all=mammoth ^
+--collect-all=tkinterweb ^
+--hidden-import=tkinter ^
+--hidden-import=tkinter.filedialog ^
+--hidden-import=tkinter.messagebox ^
+--hidden-import=tkinter.font ^
+--hidden-import=tkinter.ttk ^
+--hidden-import=_tkinter ^
+--hidden-import=webbrowser ^
+--hidden-import=docx ^
+--hidden-import=docx.api ^
+--hidden-import=docx.document ^
+--hidden-import=docx.shared ^
+--hidden-import=mammoth ^
+--hidden-import=tkinterweb ^
+--hidden-import=services.word_reader ^
+--hidden-import=services.data_processor ^
+--hidden-import=services.word_save_as ^
+--hidden-import=services.project_manager ^
+--hidden-import=services.lot_detail_manager ^
+--hidden-import=services.auto_save_recovery ^
+--hidden-import=ui.components.karakter_view ^
+--hidden-import=ui.components.navigation_panel ^
+--hidden-import=ui.components.document_viewer ^
+--hidden-import=ui.components.stats_panel ^
+--hidden-import=pandas ^
+--hidden-import=openpyxl ^
+--hidden-import=PIL ^
+main_window.py
+
+echo.
+if %ERRORLEVEL% EQU 0 (
+    echo [3/4] Build basarili! ✓
+    echo.
+    echo [4/4] Final exe olusturuluyor...
+    
+    if exist "dist\main_window.exe" (
+        echo   ✓ main_window.exe olusturuldu (WINDOWED MODE)
+        echo   ✓ Boyut: 
+        dir "dist\main_window.exe" | find ".exe"
+        echo.
+        echo =====================================
+        echo     FINAL BUILD TAMAMLANDI! ✅
+        echo =====================================
+        echo.
+        echo ✅ Tum moduller dahil edildi
+        echo ✅ GUI mode (pencere acilmayacak)
+        echo ✅ Surface Pro uyumlu
+        echo ✅ Otomatik tam ekran
+        echo.
+        
+        set /p test="Final test yapmak ister misiniz? (y/n): "
+        if /i "%test%"=="y" (
+            echo.
+            echo 🚀 Final test baslatiliyor...
+            start "" "dist\main_window.exe"
+        )
+        
+    ) else (
+        echo   ❌ Final exe olusturulamadi!
+    )
+) else (
+    echo [HATA] Build basarisiz! ❌
+    echo Yukaridaki hatalari kontrol edin
+)
+
+echo.
+echo 📝 Program basariyla calisiyorsa artik GUI modunda!
+echo 💡 Hata durumunda console versiyonu icin build_debug.bat kullanin
+echo.
+pause
