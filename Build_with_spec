@@ -1,0 +1,88 @@
+import tkinterweb
+import os
+
+tkweb_path = os.path.dirname(tkinterweb.__file__)
+print(f"TkinterWeb path: {tkweb_path}")
+
+spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
+
+block_cipher = None
+
+a = Analysis(
+    ['main_window.py'],
+    pathex=[],
+    binaries=[],
+    datas=[
+        ('src', 'src'),
+        ('caliper.ico', '.'),
+        ('{tkweb_path}', 'tkinterweb'),
+    ],
+    hiddenimports=[
+        'tkinter',
+        'tkinter.filedialog',
+        'tkinter.messagebox',
+        'tkinter.font', 
+        'tkinter.ttk',
+        '_tkinter',
+        'webbrowser',
+        'docx',
+        'mammoth',
+        'tkinterweb',
+        'tkinterweb.htmlwidgets',
+        'tkinterweb.htmllabel',
+        'tkinterweb.htmlparse',
+        'tkinterweb.tkhtml',
+        'services.word_reader',
+        'services.data_processor',
+        'services.word_save_as',
+        'services.project_manager',
+        'services.lot_detail_manager',
+        'services.auto_save_recovery',
+        'ui.components.karakter_view',
+        'ui.components.navigation_panel',
+        'ui.components.document_viewer',
+        'ui.components.stats_panel',
+        'pandas',
+        'openpyxl',
+        'PIL',
+    ],
+    hookspath=[],
+    hooksconfig={{}},
+    runtime_hooks=[],
+    excludes=[],
+    win_no_prefer_redirects=False,
+    win_private_assemblies=False,
+    cipher=block_cipher,
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    [],
+    name='main_window',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon='caliper.ico'
+)
+'''
+
+with open('main_window.spec', 'w') as f:
+    f.write(spec_content)
+
+print("Spec dosyası oluşturuldu: main_window.spec")
