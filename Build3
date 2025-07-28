@@ -1,0 +1,75 @@
+@echo off
+echo =====================================
+echo  Dijital IRS - TkinterWeb Fix Build
+echo =====================================
+echo.
+
+echo [1/5] TkinterWeb konumu bulunuyor...
+python -c "import tkinterweb; print('TkinterWeb path:', tkinterweb.__file__)"
+
+echo.
+echo [2/5] Eski build dosyalarini temizleniyor...
+if exist "dist" rmdir /s /q "dist"
+if exist "build" rmdir /s /q "build"
+if exist "*.spec" del /q "*.spec"
+
+echo [3/5] TkinterWeb data dosyalari dahil ediliyor...
+
+pyinstaller --onefile --windowed --icon=caliper.ico ^
+--add-data "src;src" ^
+--collect-all=tkinter ^
+--collect-all=_tkinter ^
+--collect-all=docx ^
+--collect-all=customtkinter ^
+--collect-all=mammoth ^
+--collect-all=tkinterweb ^
+--collect-data=tkinterweb ^
+--copy-metadata=tkinterweb ^
+--hidden-import=tkinter ^
+--hidden-import=tkinter.filedialog ^
+--hidden-import=tkinter.messagebox ^
+--hidden-import=tkinter.font ^
+--hidden-import=tkinter.ttk ^
+--hidden-import=_tkinter ^
+--hidden-import=webbrowser ^
+--hidden-import=docx ^
+--hidden-import=mammoth ^
+--hidden-import=tkinterweb ^
+--hidden-import=tkinterweb.htmlwidgets ^
+--hidden-import=tkinterweb.htmllabel ^
+--hidden-import=tkinterweb.htmlparse ^
+--hidden-import=tkinterweb.tkhtml ^
+--hidden-import=services.word_reader ^
+--hidden-import=services.data_processor ^
+--hidden-import=services.word_save_as ^
+--hidden-import=services.project_manager ^
+--hidden-import=services.lot_detail_manager ^
+--hidden-import=services.auto_save_recovery ^
+--hidden-import=ui.components.karakter_view ^
+--hidden-import=ui.components.navigation_panel ^
+--hidden-import=ui.components.document_viewer ^
+--hidden-import=ui.components.stats_panel ^
+--hidden-import=pandas ^
+--hidden-import=openpyxl ^
+--hidden-import=PIL ^
+main_window.py
+
+echo.
+if %ERRORLEVEL% EQU 0 (
+    echo [4/5] Build basarili! ✓
+    
+    if exist "dist\main_window.exe" (
+        echo [5/5] TkinterWeb data dosyalari dahil edildi ✓
+        echo.
+        echo =====================================
+        echo    TKINTERWEB BUILD TAMAMLANDI! ✅
+        echo =====================================
+        
+        set /p test="Test etmek ister misiniz? (y/n): "
+        if /i "%test%"=="y" start "" "dist\main_window.exe"
+    )
+) else (
+    echo [HATA] Build basarisiz!
+)
+
+pause
