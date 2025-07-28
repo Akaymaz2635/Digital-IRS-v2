@@ -1,0 +1,139 @@
+@echo off
+chcp 65001 >nul
+setlocal enabledelayedexpansion
+
+echo ╔════════════════════════════════════════╗
+echo ║        Dijital IRS - Build Script     ║
+echo ╚════════════════════════════════════════╝
+echo.
+
+:: Zaman damgası
+for /f "tokens=2 delims==" %%a in ('wmic OS Get localdatetime /value') do set "dt=%%a"
+set "YY=%dt:~2,2%" & set "YYYY=%dt:~0,4%" & set "MM=%dt:~4,2%" & set "DD=%dt:~6,2%"
+set "HH=%dt:~8,2%" & set "Min=%dt:~10,2%" & set "Sec=%dt:~12,2%"
+set "timestamp=%YYYY%-%MM%-%DD%_%HH%-%Min%-%Sec%"
+
+echo 📅 Build Zamanı: %YYYY%-%MM%-%DD% %HH%:%Min%:%Sec%
+echo.
+
+:: Build tipi seçimi
+echo Build tipi seçin:
+echo [1] Console (hata ayıklama için)
+echo [2] Windowed (normal kullanım)
+echo [3] Debug (detaylı log)
+echo.
+set /p buildtype="Seçiminiz (1-3): "
+
+if "%buildtype%"=="1" (
+    set "windowtype=--console"
+    set "buildname=main_window_console.exe"
+    echo ✓ Console build seçildi
+) else if "%buildtype%"=="2" (
+    set "windowtype=--windowed"
+    set "buildname=main_window.exe"
+    echo ✓ Windowed build seçildi
+) else if "%buildtype%"=="3" (
+    set "windowtype=--console --debug=all"
+    set "buildname=main_window_debug.exe"
+    echo ✓ Debug build seçildi
+) else (
+    echo ❌ Geçersiz seçim, varsayılan console build kullanılıyor
+    set "windowtype=--console"
+    set "buildname=main_window.exe"
+)
+
+echo.
+echo 🧹 [1/5] Temizlik yapılıyor...
+if exist "dist" rmdir /s /q "dist"
+if exist "build" rmdir /s /q "build"
+if exist "*.spec" del /q "*.spec"
+echo    ✓ Eski dosyalar temizlendi
+
+echo.
+echo 🔧 [2/5] Bağımlılıklar kontrol ediliyor...
+python -c "import customtkinter, pandas, docx, openpyxl; print('✓ Ana modüller mevcut')" 2>nul
+if %ERRORLEVEL% NEQ 0 (
+    echo    ❌ Eksik modül tespit edildi!
+    echo    pip install customtkinter pandas python-docx openpyxl komutunu çalıştırın
+    pause
+    exit /b 1
+)
+
+echo.
+echo 🏗️ [3/5] PyInstaller çalıştırılıyor...
+echo    Parametre: %windowtype%
+
+pyinstaller --onefile %windowtype% --icon=caliper.ico ^
+--name=%buildname% ^
+--add-data "src;src" ^
+--collect-all=tkinter ^
+--collect-all=_tkinter ^
+--collect-all=docx ^
+--collect-all=customtkinter ^
+--collect-all=pandas ^
+--collect-all=openpyxl ^
+--hidden-import=tkinter ^
+--hidden-import=tkinter.filedialog ^
+--hidden-import=tkinter.messagebox ^
+--hidden-import=tkinter.font ^
+--hidden-import=tkinter.ttk ^
+--hidden-import=_tkinter ^
+--hidden-import=webbrowser ^
+--hidden-import=docx ^
+--hidden-import=services.word_reader ^
+--hidden-import=services.data_processor ^
+--hidden-import=services.word_save_as ^
+--hidden-import=services.project_manager ^
+--hidden-import=services.lot_detail_manager ^
+--hidden-import=services.auto_save_recovery ^
+--hidden-import=ui.components.karakter_view ^
+--hidden-import=ui.components.navigation_panel ^
+--hidden-import=ui.components.document_viewer ^
+--hidden-import=ui.components.stats_panel ^
+main_window.py
+
+echo.
+if %ERRORLEVEL% EQU 0 (
+    echo ✅ [4/5] Build başarılı!
+    
+    if exist "dist\%buildname%" (
+        echo.
+        echo 📊 [5/5] Dosya bilgileri:
+        echo    📁 Konum: dist\%buildname%
+        for %%A in ("dist\%buildname%") do echo    📏 Boyut: %%~zA bytes
+        echo    🕒 Zaman: %timestamp%
+        
+        :: Backup oluştur
+        if not exist "backup" mkdir "backup"
+        copy "dist\%buildname%" "backup\%buildname%_%timestamp%.exe" >nul
+        echo    💾 Backup: backup\%buildname%_%timestamp%.exe
+        
+        echo.
+        echo ╔════════════════════════════════════════╗
+        echo ║            BUILD TAMAMLANDI ✅          ║
+        echo ╚════════════════════════════════════════╝
+        
+        echo.
+        set /p opendir="📁 Dist klasörünü açmak ister misiniz? (y/n): "
+        if /i "!opendir!"=="y" start explorer "dist"
+        
+        set /p testrun="🚀 Programı test etmek ister misiniz? (y/n): "
+        if /i "!testrun!"=="y" (
+            echo.
+            echo 🧪 Test başlatılıyor...
+            start "" "dist\%buildname%"
+        )
+        
+    ) else (
+        echo ❌ Exe dosyası oluşturulamadı!
+    )
+) else (
+    echo ❌ [HATA] Build başarısız! Hata kodu: %ERRORLEVEL%
+)
+
+echo.
+echo 📝 Log dosyası: build_%timestamp%.log oluşturuldu
+echo %timestamp% - Build Type: %buildtype% - Result: %ERRORLEVEL% >> build_log.txt
+
+echo.
+pause
