@@ -1,0 +1,17 @@
+@echo off
+echo Spec dosyasi olusturuluyor...
+python create_spec.py
+
+echo.
+echo Spec ile build yapiliyor...
+pyinstaller main_window.spec
+
+if exist "dist\main_window.exe" (
+    echo ✅ TkinterWeb ile build basarili!
+    set /p test="Test etmek ister misiniz? (y/n): "
+    if /i "%test%"=="y" start "" "dist\main_window.exe"
+) else (
+    echo ❌ Build basarisiz!
+)
+
+pause
