@@ -1,0 +1,24 @@
+@echo off
+echo ===== DEBUG BUILD =====
+
+pyinstaller --onefile --console --icon=caliper.ico ^
+--add-data "src;src" ^
+--collect-all=tkinter ^
+--collect-all=docx ^
+--collect-all=customtkinter ^
+--collect-all=mammoth ^
+--collect-all=tkinterweb ^
+--hidden-import=services.word_reader ^
+--hidden-import=services.data_processor ^
+--hidden-import=services.word_save_as ^
+--hidden-import=services.project_manager ^
+--hidden-import=services.lot_detail_manager ^
+--hidden-import=services.auto_save_recovery ^
+--hidden-import=ui.components.karakter_view ^
+--hidden-import=ui.components.navigation_panel ^
+--hidden-import=ui.components.document_viewer ^
+--hidden-import=ui.components.stats_panel ^
+main_window.py
+
+echo Debug build tamamlandi - console penceresi ile acilacak
+pause
