@@ -1,0 +1,79 @@
+@echo off
+echo =====================================
+echo    Dijital IRS - TkinterWeb Fix
+echo =====================================
+echo.
+
+echo [1/4] Eski build dosyalarini temizleniyor...
+if exist "dist" rmdir /s /q "dist"
+if exist "build" rmdir /s /q "build"
+if exist "*.spec" del /q "*.spec"
+echo   ✓ Temizlik tamamlandi
+
+echo.
+echo [2/4] PyInstaller baslatiliyor (TkinterWeb HARIC)...
+
+pyinstaller --onefile --windowed --icon=caliper.ico ^
+--add-data "src;src" ^
+--collect-all=tkinter ^
+--collect-all=_tkinter ^
+--collect-all=docx ^
+--collect-all=customtkinter ^
+--collect-all=mammoth ^
+--hidden-import=tkinter ^
+--hidden-import=tkinter.filedialog ^
+--hidden-import=tkinter.messagebox ^
+--hidden-import=tkinter.font ^
+--hidden-import=tkinter.ttk ^
+--hidden-import=_tkinter ^
+--hidden-import=webbrowser ^
+--hidden-import=docx ^
+--hidden-import=docx.api ^
+--hidden-import=docx.document ^
+--hidden-import=docx.shared ^
+--hidden-import=mammoth ^
+--hidden-import=services.word_reader ^
+--hidden-import=services.data_processor ^
+--hidden-import=services.word_save_as ^
+--hidden-import=services.project_manager ^
+--hidden-import=services.lot_detail_manager ^
+--hidden-import=services.auto_save_recovery ^
+--hidden-import=ui.components.karakter_view ^
+--hidden-import=ui.components.navigation_panel ^
+--hidden-import=ui.components.document_viewer ^
+--hidden-import=ui.components.stats_panel ^
+--hidden-import=pandas ^
+--hidden-import=openpyxl ^
+--hidden-import=PIL ^
+main_window.py
+
+echo.
+if %ERRORLEVEL% EQU 0 (
+    echo [3/4] Build basarili! ✓
+    echo.
+    
+    if exist "dist\main_window.exe" (
+        echo   ✓ main_window.exe olusturuldu
+        echo   ✓ TkinterWeb sorunu cozuldu
+        echo.
+        echo =====================================
+        echo       BUILD TAMAMLANDI! ✅
+        echo =====================================
+        echo.
+        
+        set /p test="Test etmek ister misiniz? (y/n): "
+        if /i "%test%"=="y" (
+            echo.
+            echo Test baslatiliyor...
+            start "" "dist\main_window.exe"
+        )
+        
+    ) else (
+        echo   ❌ Exe dosyasi olusturulamadi!
+    )
+) else (
+    echo [HATA] Build basarisiz! ❌
+)
+
+echo.
+pause
