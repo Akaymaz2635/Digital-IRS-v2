@@ -1,0 +1,97 @@
+def _create_lot_details_table_html(self, lot_details: Dict[str, Any], karakterler: List) -> str:
+    """Lot detayları tablosu HTML'i oluşturur - özet ve detay gösterimi"""
+    if not lot_details:
+        return '<div class="section"><h2>🔍 Lot Detayları Tablosu</h2><div class="no-data">Lot detayı bulunamadı</div></div>'
+    
+    rows_html = ""
+    karakter_dict = {f"{k.dimension}_{k.item_no}": k for k in karakterler} if karakterler else {}
+    
+    for identifier, lot_data in lot_details.items():
+        # Identifier'dan karakter bilgilerini çıkar
+        parts = identifier.split('_', 1)
+        if len(parts) >= 2:
+            dimension = parts[0]
+            item_no = parts[1]
+        else:
+            # Fallback
+            dimension = identifier
+            item_no = "Bilinmiyor"
+        
+        # Karakter bilgilerini al (eğer mevcutsa)
+        karakter = karakter_dict.get(identifier)
+        if karakter:
+            dimension = karakter.dimension
+            item_no = karakter.item_no
+        
+        # Lot verilerini al
+        part_quantity = lot_data.get('part_quantity', 0)
+        zone_quantity = lot_data.get('zone_quantity', 0)
+        actual_value = lot_data.get('actual_value', '')
+        detailed_summary = lot_data.get('detailed_summary', '')
+        notes = lot_data.get('notes', '')
+        
+        # Notları kısalt
+        notes_short = notes[:50] + "..." if len(notes) > 50 else notes
+        
+        # Renk kodlaması
+        row_class = ""
+        if "nonconform" in actual_value.lower():
+            row_class = 'class="nonconform-row"'
+        elif "conform" in actual_value.lower():
+            row_class = 'class="conform-row"'
+        
+        rows_html += f"""
+        <tr {row_class}>
+            <td><strong>{item_no}</strong></td>
+            <td>{dimension}</td>
+            <td>{part_quantity}</td>
+            <td>{zone_quantity}</td>
+            <td><strong>{actual_value}</strong></td>
+            <td title="{detailed_summary}">
+                <details>
+                    <summary>Detayları Göster</summary>
+                    <div class="lot-detail-popup">{detailed_summary}</div>
+                </details>
+            </td>
+            <td>{notes_short}</td>
+        </tr>
+        """
+    
+    # CSS'e ekle
+    additional_css = """
+    <style>
+    .conform-row { background-color: #e8f5e9 !important; }
+    .nonconform-row { background-color: #ffebee !important; }
+    .lot-detail-popup { 
+        background: white; 
+        border: 1px solid #ddd; 
+        padding: 10px; 
+        margin-top: 5px;
+        border-radius: 5px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    details summary { cursor: pointer; color: #3498db; }
+    </style>
+    """
+    
+    return additional_css + f"""
+    <div class="section">
+        <h2>🔍 Lot Detayları Tablosu</h2>
+        <table class="lot-table">
+            <thead>
+                <tr>
+                    <th>Karakter</th>
+                    <th>Dimension</th>
+                    <th>Parça</th>
+                    <th>Bölge</th>
+                    <th>Sonuç</th>
+                    <th>Detaylar</th>
+                    <th>Notlar</th>
+                </tr>
+            </thead>
+            <tbody>
+                {rows_html}
+            </tbody>
+        </table>
+    </div>
+    """
