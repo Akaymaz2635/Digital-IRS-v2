@@ -1,0 +1,369 @@
+"""
+Header/Footer'sız Word dosyası okuma çözümü
+SharePoint corruption'ında header/footer'lar sorun yaratıyorsa onları atla
+"""
+import os
+import tempfile
+import zipfile
+import xml.etree.ElementTree as ET
+from docx import Document
+from docx.document import Document as DocumentClass
+from docx.oxml.document import CT_Document
+from docx.oxml.parser import parse_xml
+from typing import List
+
+class HeaderlessWordReader:
+    """Header/Footer olmadan Word dosyası okuyucu"""
+    
+    def __init__(self):
+        self.current_document = None
+        self.raw_xml_content = None
+
+    def load_document_without_headers(self, file_path: str) -> bool:
+        """Word dosyasını header/footer'lar olmadan yükler"""
+        try:
+            print(f"Header/Footer'sız Word yükleme deneniyor: {file_path}")
+            
+            # Önce normal yüklemeyi dene
+            try:
+                doc = Document(file_path)
+                self.current_document = doc
+                print(f"✓ Normal Word dosyası yüklendi: {file_path}")
+                return True
+            except Exception as normal_error:
+                print(f"⚠ Normal yükleme başarısız: {normal_error}")
+                
+                # Header/footer hatası mı kontrol et
+                error_msg = str(normal_error).lower()
+                if any(keyword in error_msg for keyword in ['header', 'footer', 'relationship', 'null']):
+                    print("🔧 Header/Footer corruption tespit edildi, headerless yükleme deneniyor...")
+                    return self._load_without_problematic_parts(file_path)
+                else:
+                    print(f"HATA: Bilinmeyen Word hatası: {normal_error}")
+                    return False
+                    
+        except Exception as e:
+            print(f"HATA: Genel Word yükleme hatası: {e}")
+            return False
+
+    def _load_without_problematic_parts(self, file_path: str) -> bool:
+        """Problematik header/footer'ları temizleyerek yükle"""
+        try:
+            # Geçici dosya oluştur
+            with tempfile.NamedTemporaryFile(suffix='.docx', delete=False) as temp_file:
+                temp_path = temp_file.name
+            
+            try:
+                # DOCX dosyasını ZIP olarak aç ve temizle
+                success = self._create_clean_docx(file_path, temp_path)
+                
+                if success:
+                    # Temizlenmiş dosyayı yükle
+                    doc = Document(temp_path)
+                    self.current_document = doc
+                    print(f"✓ Headerless Word dosyası başarıyla yüklendi")
+                    return True
+                else:
+                    # Son çare: XML'i direkt oku
+                    return self._load_from_raw_xml(file_path)
+                    
+            finally:
+                # Geçici dosyayı temizle
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
+                    
+        except Exception as e:
+            print(f"HATA: Headerless yükleme hatası: {e}")
+            return self._load_from_raw_xml(file_path)
+
+    def _create_clean_docx(self, input_path: str, output_path: str) -> bool:
+        """Header/Footer'ları temizlenmiş DOCX oluştur"""
+        try:
+            with zipfile.ZipFile(input_path, 'r') as zip_in:
+                with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zip_out:
+                    
+                    for item in zip_in.infolist():
+                        # Problematik dosyaları atla
+                        if self._should_skip_file(item.filename):
+                            print(f"    Atlanıyor: {item.filename}")
+                            continue
+                        
+                        # Relationship dosyalarını temizle
+                        if item.filename.endswith('.rels'):
+                            cleaned_content = self._clean_rels_content(zip_in.read(item))
+                            if cleaned_content:
+                                zip_out.writestr(item, cleaned_content)
+                            else:
+                                print(f"    Boş rels dosyası atlandı: {item.filename}")
+                        else:
+                            # Normal dosyaları kopyala
+                            zip_out.writestr(item, zip_in.read(item))
+            
+            print("✓ Temizlenmiş DOCX oluşturuldu")
+            return True
+            
+        except Exception as e:
+            print(f"HATA: Clean DOCX oluşturma hatası: {e}")
+            return False
+
+    def _should_skip_file(self, filename: str) -> bool:
+        """Hangi dosyaların atlanacağını belirler"""
+        skip_patterns = [
+            'word/header',
+            'word/footer', 
+            'word/endnotes.xml',
+            'word/footnotes.xml',
+            'word/comments.xml',
+            'word/webSettings.xml'
+        ]
+        
+        filename_lower = filename.lower()
+        return any(pattern in filename_lower for pattern in skip_patterns)
+
+    def _clean_rels_content(self, rels_content: bytes) -> bytes:
+        """Relationship içeriğini temizler"""
+        try:
+            content_str = rels_content.decode('utf-8')
+            
+            # Problematik satırları temizle
+            lines = content_str.split('\n')
+            cleaned_lines = []
+            
+            for line in lines:
+                # NULL referansları ve problematik relationship'leri atla
+                if (any(bad_ref in line for bad_ref in ['../NULL', '"NULL"', 'header', 'footer']) or
+                    'Target="#_' in line):
+                    print(f"      Problematik rels satırı temizlendi")
+                    continue
+                cleaned_lines.append(line)
+            
+            return '\n'.join(cleaned_lines).encode('utf-8')
+            
+        except Exception as e:
+            print(f"UYARI: Rels temizleme hatası: {e}")
+            return rels_content
+
+    def _load_from_raw_xml(self, file_path: str) -> bool:
+        """Son çare: Raw XML'den document.xml'i oku"""
+        try:
+            print("📄 Son çare: Raw XML okuma deneniyor...")
+            
+            with zipfile.ZipFile(file_path, 'r') as zip_file:
+                # document.xml'i oku
+                try:
+                    document_xml = zip_file.read('word/document.xml')
+                    self.raw_xml_content = document_xml.decode('utf-8')
+                    
+                    # Basit Document objesi oluştur (sadece tablolar için)
+                    self.current_document = self._create_minimal_document(document_xml)
+                    
+                    print("✓ Raw XML'den minimal document oluşturuldu")
+                    return True
+                    
+                except KeyError:
+                    print("HATA: document.xml bulunamadı")
+                    return False
+                    
+        except Exception as e:
+            print(f"HATA: Raw XML okuma hatası: {e}")
+            return False
+
+    def _create_minimal_document(self, document_xml: bytes):
+        """Minimal Document objesi oluştur (sadece tablolar için)"""
+        try:
+            # XML'i parse et
+            root = ET.fromstring(document_xml)
+            
+            # Namespace'leri tanımla
+            namespaces = {
+                'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+            }
+            
+            # Tablo elementlerini bul
+            tables = root.findall('.//w:tbl', namespaces)
+            print(f"Raw XML'de {len(tables)} tablo bulundu")
+            
+            # Minimal Document-like objesi oluştur
+            class MinimalDocument:
+                def __init__(self, table_elements):
+                    self.tables = [MinimalTable(tbl, namespaces) for tbl in table_elements]
+            
+            return MinimalDocument(tables)
+            
+        except Exception as e:
+            print(f"HATA: Minimal document oluşturma hatası: {e}")
+            return None
+
+class MinimalTable:
+    """Raw XML'den minimal tablo objesi"""
+    
+    def __init__(self, table_element, namespaces):
+        self.rows = []
+        self._parse_table(table_element, namespaces)
+    
+    def _parse_table(self, table_element, namespaces):
+        """Tablo elementini parse et"""
+        try:
+            row_elements = table_element.findall('.//w:tr', namespaces)
+            
+            for row_elem in row_elements:
+                cells = []
+                cell_elements = row_elem.findall('.//w:tc', namespaces)
+                
+                for cell_elem in cell_elements:
+                    # Hücredeki text'i al
+                    text_elements = cell_elem.findall('.//w:t', namespaces)
+                    cell_text = ''.join([t.text or '' for t in text_elements])
+                    cells.append(MinimalCell(cell_text))
+                
+                if cells:  # Boş satırları atla
+                    self.rows.append(MinimalRow(cells))
+                    
+        except Exception as e:
+            print(f"UYARI: Tablo parse hatası: {e}")
+
+class MinimalRow:
+    """Minimal satır objesi"""
+    def __init__(self, cells):
+        self.cells = cells
+
+class MinimalCell:
+    """Minimal hücre objesi"""
+    def __init__(self, text):
+        self.text = text
+        # Paragraf simülasyonu
+        self.paragraphs = [MinimalParagraph(text)]
+
+class MinimalParagraph:
+    """Minimal paragraf objesi"""
+    def __init__(self, text):
+        self.text = text
+
+class WordReaderService:
+    """Güncellenmiş Word Reader Service - Headerless desteği ile"""
+    
+    def __init__(self):
+        self.current_document = None
+        self.headerless_reader = HeaderlessWordReader()
+
+    def load_document(self, file_path: str) -> bool:
+        """Word Dosyasını Yükler - HeaderLess fallback ile"""
+        try:
+            # Önce normal yüklemeyi dene
+            doc = Document(file_path)
+            self.current_document = doc
+            print(f"✓ Normal Word dosyası yüklendi: {file_path}")
+            return True
+            
+        except Exception as e:
+            error_msg = str(e).lower()
+            print(f"⚠ Normal yükleme başarısız: {e}")
+            
+            # SharePoint/Header problemi mi?
+            if any(keyword in error_msg for keyword in ['header', 'footer', 'relationship', 'null']):
+                print("🔧 Header/Footer problemi tespit edildi, headerless yükleme deneniyor...")
+                
+                # Headerless yükleme
+                success = self.headerless_reader.load_document_without_headers(file_path)
+                if success:
+                    self.current_document = self.headerless_reader.current_document
+                    print("✓ Headerless yükleme başarılı")
+                    return True
+                else:
+                    print("✗ Headerless yükleme de başarısız")
+                    return False
+            else:
+                print(f"HATA: Bilinmeyen Word hatası: {e}")
+                return False
+
+    def extract_tables(self, file_path: str) -> List:
+        """Word içerisindeki Tabloları Veri Toplar - HeaderLess desteği ile"""
+        print("Veri işleme başlıyor (HeaderLess desteği ile)...")
+        
+        # Header'ı ilk eleman olarak liste içinde tanımla
+        headers = ["ITEM NO", "DIMENSION", "ACTUAL", "BADGE", "TOOLING", "REMARKS", "B/P ZONE", "INSP. LEVEL"]
+        extracted_data = [headers]
+        
+        try:
+            # Word dokümanını yükle (HeaderLess fallback ile)
+            if not self.load_document(file_path):
+                print("HATA: Word dosyası yüklenemedi")
+                return []
+            
+            tables = self.current_document.tables
+            print(f"  {len(tables)} tablo bulundu")
+            
+            for table_idx, table in enumerate(tables):
+                print(f"  Tablo {table_idx + 1} işleniyor...")
+                
+                for row in table.rows:
+                    row_data = []
+                    for cell in row.cells:
+                        # Hücredeki tüm paragrafları birleştir
+                        if hasattr(cell, 'paragraphs'):
+                            cell_text = '\n'.join([p.text for p in cell.paragraphs])
+                        else:
+                            # MinimalCell için
+                            cell_text = cell.text
+                        row_data.append(cell_text)
+                    
+                    # DEBUG: Satır verilerini kontrol et
+                    if len(row_data) > 0:
+                        print(f"    Debug - İlk element: '{row_data[0][:30]}...'")
+
+                        def char_check():
+                            control = []
+                            for listeler in extracted_data:
+                                result = row_data[0] in listeler
+                                control.append(str(result))
+                            return "True" in control
+                    
+                    # Filtreleme mantığı (aynı)
+                    if (len(row_data) > 4 and not (
+                        row_data[1].strip().endswith(("Inch", "Inches")) or
+                        row_data[0].strip().endswith(("ITEM NO KC", "ITEM NO", "RECORDING", "INSPECTION", "INSPECTOR", "/0", "**", "PAGE NO")) or
+                        char_check())):
+                        
+                        row_data[1] = row_data[1].replace(",", ".")
+                        
+                        # Satırı 8 kolona pad et veya kırp
+                        padded_row = row_data + [''] * (len(headers) - len(row_data))
+                        padded_row = padded_row[:len(headers)]
+                        
+                        extracted_data.append(padded_row)
+                        print(f"    ✓ Satır eklendi: {row_data[0][:20]}... (kolon sayısı: {len(padded_row)})")
+            
+            print(f"✓ Toplam {len(extracted_data) - 1} karakter çıkarıldı")
+            return extracted_data
+            
+        except Exception as e:
+            print(f"HATA: Tablo çıkarma işleminde sorun: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+# Test fonksiyonu
+def test_headerless_word_reader():
+    """HeaderLess Word Reader'ı test eder"""
+    test_file = "problematic_sharepoint.docx"
+    
+    if not os.path.exists(test_file):
+        print("Test dosyası bulunamadı")
+        return
+    
+    print("=== HEADERLESS WORD READER TEST ===")
+    
+    # Test et
+    word_service = WordReaderService()
+    data = word_service.extract_tables(test_file)
+    
+    print(f"\n✓ Sonuç:")
+    print(f"  - Çıkarılan satır sayısı: {len(data) - 1 if data else 0}")
+    print(f"  - Header: {data[0] if data else 'Yok'}")
+    if len(data) > 1:
+        print(f"  - İlk veri satırı: {data[1]}")
+
+if __name__ == "__main__":
+    test_headerless_word_reader()
