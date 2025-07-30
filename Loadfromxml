@@ -21,3 +21,20 @@ def load_from_xml_v2(baseURI, rels_item_xml):
 # Monkey patch uygula
 _SerializedRelationships.load_from_xml = load_from_xml_v2
 print("✓ SharePoint Word dosyası düzeltmesi aktif")
+
+
+
+def load_document(self, file_path: str) -> bool:
+    """Word Dosyasını Yükler - SharePoint düzeltmesi ile"""
+    try:
+        doc = Document(file_path)
+        self.current_document = doc
+        print(f"✓ Word dosyası yüklendi: {file_path}")
+        return True
+    except Exception as e:
+        error_msg = str(e)
+        if "word/header" in error_msg.lower() or "null" in error_msg.lower():
+            print(f"⚠ SharePoint corruption tespit edildi, monkey patch ile çözülecek: {file_path}")
+        else:
+            print(f"HATA: Word dosyası yüklenemedi - {e}")
+        return False
