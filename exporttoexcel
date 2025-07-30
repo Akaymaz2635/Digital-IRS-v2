@@ -1,0 +1,248 @@
+def export_to_excel(self):
+    """Excel'e aktar - hem manuel hem otomatik uygunsuz karakterler dahil"""
+    if not self.karakterler:
+        messagebox.showwarning("Uyarı", "Veri yok!")
+        return
+
+    try:
+        project_folder = self.project_manager.get_project_folder()
+        if not project_folder:
+            messagebox.showerror("Hata", "Proje klasörü bulunamadı!")
+            return
+
+        # Excel dosyası yolu
+        excel_path = os.path.join(project_folder, "measurement_data.xlsx")
+
+        # UYGUNSUZ KARAKTERLER İÇİN GENİŞ KONTROL
+        out_of_tolerance_karakterler = []
+        
+        for karakter in self.karakterler:
+            is_unsuitable = False
+            reason = ""
+            
+            # 1. Manuel işaretleme kontrolü
+            if hasattr(karakter, 'is_out_of_tolerance') and karakter.is_out_of_tolerance:
+                is_unsuitable = True
+                reason = "Manuel işaretleme"
+            
+            # 2. Otomatik tolerance kontrolü (actual değeri varsa)
+            elif karakter.actual:
+                try:
+                    # *** YENİ: Çoklu değer kontrolü ***
+                    actual_value = str(karakter.actual)
+                    
+                    # Çoklu değerleri parse et (word_save_as'daki gibi)
+                    if '/' in actual_value:
+                        values = [v.strip() for v in actual_value.split('/') if v.strip()]
+                        
+                        # Her değeri ayrı ayrı kontrol et
+                        any_out_of_tolerance = False
+                        for value in values:
+                            try:
+                                # Önce sayısal mı kontrol et
+                                try:
+                                    value_float = float(value.replace(',', '.'))
+                                    
+                                    # Tolerans kontrolü
+                                    has_lower = hasattr(karakter, 'lower_limit') and karakter.lower_limit is not None
+                                    has_upper = hasattr(karakter, 'upper_limit') and karakter.upper_limit is not None
+                                    
+                                    if has_lower and has_upper:
+                                        if not (karakter.lower_limit <= value_float <= karakter.upper_limit):
+                                            any_out_of_tolerance = True
+                                            break
+                                    elif has_upper:
+                                        if value_float > karakter.upper_limit:
+                                            any_out_of_tolerance = True
+                                            break
+                                    elif has_lower:
+                                        if value_float < karakter.lower_limit:
+                                            any_out_of_tolerance = True
+                                            break
+                                            
+                                except ValueError:
+                                    # Sayısal olmayan değer - kategorik kontrol
+                                    value_lower = value.lower()
+                                    if any(indicator in value_lower for indicator in ['nonconform', 'red', 'nok', 'fail', 'ret']):
+                                        any_out_of_tolerance = True
+                                        break
+                                        
+                            except Exception as parse_error:
+                                print(f"Değer parse hatası ({value}): {parse_error}")
+                                continue
+                        
+                        if any_out_of_tolerance:
+                            is_unsuitable = True
+                            reason = "Çoklu değer tolerance kontrolü"
+                    
+                    else:
+                        # Tek değer kontrolü
+                        try:
+                            # Önce sayısal mı kontrol et
+                            try:
+                                actual_float = float(actual_value.replace(',', '.'))
+                                has_lower = hasattr(karakter, 'lower_limit') and karakter.lower_limit is not None
+                                has_upper = hasattr(karakter, 'upper_limit') and karakter.upper_limit is not None
+                                
+                                if has_lower and has_upper:
+                                    if not (karakter.lower_limit <= actual_float <= karakter.upper_limit):
+                                        is_unsuitable = True
+                                        reason = "Tek değer tolerance kontrolü (bilateral)"
+                                elif has_upper:
+                                    if actual_float > karakter.upper_limit:
+                                        is_unsuitable = True
+                                        reason = "Tek değer tolerance kontrolü (upper)"
+                                elif has_lower:
+                                    if actual_float < karakter.lower_limit:
+                                        is_unsuitable = True
+                                        reason = "Tek değer tolerance kontrolü (lower)"
+                                        
+                            except ValueError:
+                                # Sayısal olmayan değer - kategorik kontrol
+                                value_lower = actual_value.lower()
+                                if any(indicator in value_lower for indicator in ['nonconform', 'red', 'nok', 'fail', 'ret']):
+                                    is_unsuitable = True
+                                    reason = "Kategorik değer kontrolü"
+                                    
+                        except Exception as single_error:
+                            print(f"Tek değer kontrolü hatası: {single_error}")
+                            pass
+                    
+                    # Karakter'in kendi tolerance kontrol metodunu da dene (fallback)
+                    if not is_unsuitable:
+                        try:
+                            is_compliant, status_message = karakter.check_tolerance_compliance(karakter.actual)
+                            if not is_compliant:
+                                is_unsuitable = True
+                                reason = "Karakter metodu kontrolü"
+                        except:
+                            pass  # Metod yoksa veya hata varsa devam et
+                            
+                except Exception as e:
+                    print(f"Genel tolerance kontrol hatası ({karakter.item_no}): {e}")
+                    pass  # Tolerance kontrol metodu yoksa, manual kontrol
+            
+            if is_unsuitable:
+                out_of_tolerance_karakterler.append(karakter)
+                print(f"EXCEL EXPORT: {karakter.item_no} uygunsuz - {reason} - Değer: {karakter.actual}")
+        
+        print(f"EXCEL EXPORT: Toplam uygunsuz karakter: {len(out_of_tolerance_karakterler)}")
+
+        # Ana veri için DataFrame oluştur
+        data = []
+        for karakter in self.karakterler:
+            # Uygunsuz durumunu belirle (hem manuel hem otomatik)
+            is_out_of_tolerance = karakter in out_of_tolerance_karakterler
+            
+            row_data = {
+                'Item No': karakter.item_no,
+                'Dimension': karakter.dimension,
+                'Tooling': karakter.tooling,
+                'BP Zone': karakter.bp_zone,
+                'Remarks': karakter.remarks,
+                'Inspection Level': karakter.inspection_level,
+                'Actual': karakter.actual,
+                'Badge': karakter.badge,
+                'Out of Tolerance': '❌ Uygunsuz' if is_out_of_tolerance else ''
+            }
+
+            # Parsed dimension bilgileri
+            if hasattr(karakter, 'tolerance_type') and karakter.tolerance_type:
+                row_data['Tolerance Type'] = karakter.tolerance_type
+            if hasattr(karakter, 'nominal_value') and karakter.nominal_value is not None:
+                row_data['Nominal Value'] = karakter.nominal_value
+            if hasattr(karakter, 'upper_limit') and karakter.upper_limit is not None:
+                row_data['Upper Limit'] = karakter.upper_limit
+            if hasattr(karakter, 'lower_limit') and karakter.lower_limit is not None:
+                row_data['Lower Limit'] = karakter.lower_limit
+
+            data.append(row_data)
+
+        # Ana veri DataFrame'i
+        main_df = pd.DataFrame(data)
+
+        # Excel writer oluştur
+        with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+            # Ana veri sayfası
+            main_df.to_excel(writer, sheet_name='Measurements', index=False)
+
+            # Uygunsuz karakterler için DISPOSITION sayfası
+            if out_of_tolerance_karakterler:
+                print(f"EXCEL EXPORT: DISPOSITION sayfası oluşturuluyor: {len(out_of_tolerance_karakterler)} karakter")
+                self._create_disposition_sheet(writer, out_of_tolerance_karakterler)
+            else:
+                print("EXCEL EXPORT: Hiç uygunsuz karakter yok, DISPOSITION sayfası oluşturulmayacak")
+
+            # İstatistik sayfası
+            self._create_statistics_sheet(writer, out_of_tolerance_charakterer=out_of_tolerance_karakterler)
+
+        messagebox.showinfo("Başarılı", f"Excel'e aktarıldı:\n{excel_path}\nUygunsuz karakter sayısı: {len(out_of_tolerance_karakterler)}")
+
+    except Exception as e:
+        print(f"EXCEL EXPORT: Excel export hatası: {e}")
+        import traceback
+        traceback.print_exc()
+        messagebox.showerror("Hata", f"Excel aktarım hatası: {str(e)}")
+
+def parse_multiple_values(self, actual_value: str) -> List[str]:
+    """
+    Birden fazla değeri parse eder (örn: '1.0/2.0' -> ['1.0', '2.0'])
+    Word save servisindeki ile aynı
+    """
+    if not actual_value:
+        return []
+    
+    # "/" ile ayrılmış değerleri ayır
+    values = [v.strip() for v in actual_value.split('/')]
+    return [v for v in values if v]  # Boş stringleri filtrele
+
+    def parse_multiple_values(self, actual_value: str) -> List[str]:
+        """
+        Birden fazla değeri parse eder (örn: '1.0/2.0' -> ['1.0', '2.0'])
+        Word save servisindeki ile aynı
+        """
+        if not actual_value:
+            return []
+        
+        # "/" ile ayrılmış değerleri ayır
+        values = [v.strip() for v in actual_value.split('/')]
+        return [v for v in values if v]  # Boş stringleri filtrele
+
+    def check_single_value_tolerance(self, value_str: str, karakter) -> bool:
+    """
+    Tek bir değerin tolerans durumunu kontrol eder
+    
+    Returns:
+        bool: tolerans_içinde_mi
+    """
+    try:
+        # Önce sayısal mı kontrol et
+        try:
+            value = float(value_str.replace(',', '.'))
+            
+            # Limit kontrolü
+            has_lower = hasattr(karakter, 'lower_limit') and karakter.lower_limit is not None
+            has_upper = hasattr(karakter, 'upper_limit') and karakter.upper_limit is not None
+            
+            if not has_lower and not has_upper:
+                return True  # Limit yok, tolerans içi say
+            
+            # Tolerans kontrolü
+            if has_lower and has_upper:
+                return karakter.lower_limit <= value <= karakter.upper_limit
+            elif has_upper:
+                return value <= karakter.upper_limit
+            elif has_lower:
+                return value >= karakter.lower_limit
+                
+        except ValueError:
+            # Sayısal olmayan değer - kategorik kontrol
+            value_lower = value_str.lower()
+            # Uygunsuz kategorik değerler
+            unsuitable_indicators = ['nonconform', 'red', 'nok', 'fail', 'ret']
+            return not any(indicator in value_lower for indicator in unsuitable_indicators)
+    
+    except Exception:
+        return True  # Kontrol edilemezse tolerans içi say
+    
+    return True
