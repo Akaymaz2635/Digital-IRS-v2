@@ -1,0 +1,298 @@
+"""
+SharePoint Word dosyası okuma hatası için çözüm
+word_reader.py dosyasına eklenecek kodlar
+"""
+import os
+import tempfile
+import zipfile
+from docx import Document
+from docx.opc.oxml import parse_xml
+from docx.opc.pkgreader import _SerializedRelationship, _SerializedRelationships
+from typing import List
+
+# GitHub çözümünü uyarlayalım
+def load_from_xml_v2(baseURI, rels_item_xml):
+    """
+    SharePoint hatası için özel XML parser
+    Return |_SerializedRelationships| instance loaded with the
+    relationships contained in *rels_item_xml*. Returns an empty
+    collection if *rels_item_xml* is |None|.
+    """
+    srels = _SerializedRelationships()
+    if rels_item_xml is not None:
+        rels_elm = parse_xml(rels_item_xml)
+        for rel_elm in rels_elm.Relationship_lst:
+            if (
+                rel_elm.target_ref in ("../NULL", "NULL")
+                or rel_elm.target_ref.startswith("#_")  # Internal bookmark
+            ):
+                continue
+            srels._srels.append(_SerializedRelationship(baseURI, rel_elm))
+    return srels
+
+# Monkey patch uygula
+_SerializedRelationships.load_from_xml = load_from_xml_v2
+
+class SharePointWordFixer:
+    """SharePoint Word dosyalarını düzeltmek için yardımcı sınıf"""
+    
+    @staticmethod
+    def is_sharepoint_corrupted(file_path: str) -> bool:
+        """Dosyanın SharePoint corruption'ı olup olmadığını kontrol eder"""
+        try:
+            # Basit test - dosyayı açmaya çalış
+            Document(file_path)
+            return False
+        except Exception as e:
+            error_msg = str(e).lower()
+            return any(keyword in error_msg for keyword in [
+                'word/header', 'word/footer', 'relationship', 'target_ref', 'null'
+            ])
+    
+    @staticmethod
+    def fix_sharepoint_docx(input_path: str, output_path: str = None) -> str:
+        """
+        SharePoint'ten bozulmuş Word dosyasını düzeltir
+        
+        Args:
+            input_path: Bozuk dosya yolu
+            output_path: Düzeltilmiş dosya yolu (None ise temp dosya)
+            
+        Returns:
+            str: Düzeltilmiş dosyanın yolu
+        """
+        if not output_path:
+            # Geçici dosya oluştur
+            temp_dir = tempfile.gettempdir()
+            filename = os.path.basename(input_path)
+            name_without_ext = os.path.splitext(filename)[0]
+            output_path = os.path.join(temp_dir, f"{name_without_ext}_fixed.docx")
+        
+        try:
+            print(f"SharePoint Word dosyası düzeltiliyor: {input_path}")
+            
+            # ZIP olarak aç (DOCX aslında bir ZIP dosyasıdır)
+            with zipfile.ZipFile(input_path, 'r') as zip_ref:
+                # Geçici klasör oluştur
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    # Tüm dosyaları çıkar
+                    zip_ref.extractall(temp_dir)
+                    
+                    # Relationship dosyalarını düzelt
+                    rels_dir = os.path.join(temp_dir, 'word', '_rels')
+                    if os.path.exists(rels_dir):
+                        for rels_file in os.listdir(rels_dir):
+                            if rels_file.endswith('.rels'):
+                                rels_path = os.path.join(rels_dir, rels_file)
+                                SharePointWordFixer._fix_rels_file(rels_path)
+                    
+                    # Ana _rels klasörünü de kontrol et
+                    main_rels_dir = os.path.join(temp_dir, '_rels')
+                    if os.path.exists(main_rels_dir):
+                        for rels_file in os.listdir(main_rels_dir):
+                            if rels_file.endswith('.rels'):
+                                rels_path = os.path.join(main_rels_dir, rels_file)
+                                SharePointWordFixer._fix_rels_file(rels_path)
+                    
+                    # Düzeltilmiş dosyayı yeniden zip'le
+                    with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zip_out:
+                        for root, dirs, files in os.walk(temp_dir):
+                            for file in files:
+                                file_path = os.path.join(root, file)
+                                arcname = os.path.relpath(file_path, temp_dir)
+                                zip_out.write(file_path, arcname)
+            
+            print(f"✓ SharePoint Word dosyası düzeltildi: {output_path}")
+            return output_path
+            
+        except Exception as e:
+            print(f"HATA: SharePoint düzeltme başarısız: {e}")
+            raise
+    
+    @staticmethod
+    def _fix_rels_file(rels_file_path: str):
+        """Relationship dosyasındaki NULL referansları temizler"""
+        try:
+            with open(rels_file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Bozuk referansları temizle
+            lines = content.split('\n')
+            fixed_lines = []
+            
+            for line in lines:
+                # NULL referansları ve internal bookmark'ları atla
+                if ('Target="../NULL"' in line or 
+                    'Target="NULL"' in line or 
+                    'Target="#_' in line):
+                    print(f"    Bozuk referans kaldırıldı: {line.strip()}")
+                    continue
+                fixed_lines.append(line)
+            
+            # Düzeltilmiş içeriği yaz
+            fixed_content = '\n'.join(fixed_lines)
+            with open(rels_file_path, 'w', encoding='utf-8') as f:
+                f.write(fixed_content)
+                
+        except Exception as e:
+            print(f"UYARI: Rels dosyası düzeltilirken hata: {e}")
+
+class WordReaderService:
+    def __init__(self):
+        self.current_document = None
+
+    def load_document(self, file_path: str) -> bool:
+        """Word Dosyasını Yükler - SharePoint düzeltmesi ile"""
+        try:
+            # Önce normal yüklemeyi dene
+            try:
+                doc = Document(file_path)
+                self.current_document = doc
+                print(f"✓ Word dosyası yüklendi: {file_path}")
+                return True
+            except Exception as e:
+                error_msg = str(e)
+                print(f"⚠ Normal yükleme başarısız: {error_msg}")
+                
+                # SharePoint hatası mı kontrol et
+                if any(keyword in error_msg.lower() for keyword in [
+                    'word/header', 'word/footer', 'relationship', 'target_ref', 'null'
+                ]):
+                    print("🔧 SharePoint corruption tespit edildi, düzeltme deneniyor...")
+                    
+                    # Dosyayı düzelt ve tekrar dene
+                    try:
+                        fixed_path = SharePointWordFixer.fix_sharepoint_docx(file_path)
+                        doc = Document(fixed_path)
+                        self.current_document = doc
+                        print(f"✓ SharePoint düzeltmesi ile Word dosyası yüklendi: {file_path}")
+                        
+                        # Geçici dosyayı temizle
+                        try:
+                            os.remove(fixed_path)
+                        except:
+                            pass
+                        
+                        return True
+                    except Exception as fix_error:
+                        print(f"HATA: SharePoint düzeltmesi de başarısız: {fix_error}")
+                        return False
+                else:
+                    # Başka bir hata
+                    print(f"HATA: Word dosyası yüklenemedi - {e}")
+                    return False
+                    
+        except Exception as e:
+            print(f"HATA: Genel Word dosyası yükleme hatası - {e}")
+            return False
+
+    def extract_tables(self, file_path: str) -> List:
+        """
+        Word içerisindeki Tabloları Veri Toplar ve Liste Olarak Döndürür
+        SharePoint düzeltmesi ile
+        """
+        print("Veri işleme başlıyor...")
+        
+        # Header'ı ilk eleman olarak liste içinde tanımla
+        headers = ["ITEM NO", "DIMENSION", "ACTUAL", "BADGE", "TOOLING", "REMARKS", "B/P ZONE", "INSP. LEVEL"]
+        extracted_data = [headers]  # İlk eleman header LİSTESİ
+        
+        try:
+            # Word dokümanını yükle (SharePoint düzeltmesi ile)
+            word_document = self.load_document(file_path=file_path)
+            if not word_document:
+                return []
+            
+            tables = self.current_document.tables
+            print(f"  {len(tables)} tablo bulundu")
+            
+            for table_idx, table in enumerate(tables):
+                print(f"  Tablo {table_idx + 1} işleniyor...")
+                
+                for row in table.rows:
+                    row_data = []
+                    for cell in row.cells:
+                        # Hücredeki tüm paragrafları birleştir
+                        cell_text = '\n'.join([p.text for p in cell.paragraphs])
+                        row_data.append(cell_text)
+                    
+
+                    # DEBUG: Satır verilerini kontrol et
+                    print(f"    Debug - row_data uzunluğu: {len(row_data)}")
+                    if len(row_data) > 0:
+                        print(f"    Debug - İlk element: '{row_data[0]}'")
+
+                        def char_check():
+                            control = []
+                            for listeler in extracted_data:
+                                result = row_data[0] in listeler
+                                result = str(result)
+                                control.append(result)
+                            print(control)
+                            if "True" in control:
+                                return True
+                    
+                    # Filtreleme mantığı
+                    if (len(row_data) > 4 and not (row_data[1].strip().endswith("Inch")
+                                or row_data[1].strip().endswith("Inches")
+                                or row_data[0].strip().endswith("ITEM NO KC")
+                                or row_data[0].strip().endswith("ITEM NO")
+                                or row_data[0].strip().endswith("RECORDING")
+                                or row_data[0].strip().endswith("INSPECTION")
+                                or row_data[0].strip().endswith("INSPECTOR")
+                                or row_data[0].strip().endswith("/0")
+                                or row_data[0].strip().endswith("**")
+                                or row_data[0].strip().endswith("PAGE NO")
+                                or char_check())):
+                        row_data[1]=row_data[1].replace(",",".")                       
+                        # Satırı 8 kolona pad et veya kırp
+                        padded_row = row_data + [''] * (len(headers) - len(row_data))
+                        padded_row = padded_row[:len(headers)]
+                        
+                        extracted_data.append(padded_row)  # LİSTE ekleniyor
+                        print(f"    ✓ Satır eklendi: {row_data[0]} (kolon sayısı: {len(padded_row)})")
+            
+            print(f"✓ Toplam {len(extracted_data) - 1} karakter çıkarıldı")
+            print(f"Header: {extracted_data[0]}")
+            if len(extracted_data) > 1:
+                print(f"İlk veri satırı: {extracted_data[1]} (uzunluk: {len(extracted_data[1])})")
+            
+            return extracted_data
+            
+        except Exception as e:
+            print(f"HATA: Tablo çıkarma işleminde sorun: {e}")
+            return []
+
+# Test fonksiyonu
+def test_sharepoint_fix():
+    """SharePoint düzeltmesini test eder"""
+    test_file = "sharepoint_document.docx"  # SharePoint'ten indirilen dosya
+    
+    if not os.path.exists(test_file):
+        print("Test dosyası bulunamadı")
+        return
+    
+    print("=== SHAREPOINT WORD FIX TEST ===")
+    
+    # Corruption kontrol et
+    if SharePointWordFixer.is_sharepoint_corrupted(test_file):
+        print("✓ SharePoint corruption tespit edildi")
+        
+        # Düzelt
+        fixed_file = SharePointWordFixer.fix_sharepoint_docx(test_file)
+        print(f"✓ Düzeltilmiş dosya: {fixed_file}")
+        
+        # Test et
+        word_service = WordReaderService()
+        success = word_service.load_document(fixed_file)
+        print(f"✓ Düzeltilmiş dosya yükleme: {'Başarılı' if success else 'Başarısız'}")
+    else:
+        print("Dosya zaten sağlam")
+    
+    # Normal servis ile test
+    word_service = WordReaderService()
+    data = word_service.extract_tables(test_file)
+    print(f"✓ Çıkarılan veri satırı: {len(data) - 1 if data else 0}")
+
+if __name__ == "__main__":
+    test_sharepoint_fix()
